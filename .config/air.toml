@@ -1,0 +1,11 @@
+[build]
+cmd = "go build -o bin/deeplo ./cmd/deeplo"
+entrypoint = "/bin/true"
+include_ext = ["go"]
+exclude_dir = ["bin", "assets", "tmp", "vendor", "testdata", "website"]
+delay = 0
+kill_delay = 0
+rerun_delay = 0
+
+[misc]
+startup_banner = ""

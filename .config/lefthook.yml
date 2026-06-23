@@ -1,0 +1,25 @@
+colors: false
+no_tty: true # disable the spinner, fast jobs makes it flicker
+output:
+  - summary
+  - success
+  - failure
+pre-commit:
+  parallel: true
+  jobs:
+    - name: Lint
+      run: golangci-lint run
+    - name: Test
+      run: >
+        sh -c 'if command -v gotestsum >/dev/null 2>&1; then
+          exec gotestsum --no-color --format pkgname-and-test-fails -- ./...;
+        else
+          exec go test ./...;
+        fi'
+    - name: Build
+      run: go build ./cmd/deeplo
+
+commit-msg:
+  jobs:
+    - name: Commit message format
+      run: sh scripts/check-commit-msg.sh {1}
