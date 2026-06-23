@@ -1,0 +1,15 @@
+.vscode/
+
+/bin/
+/deeplo
+/tmp/
+
+*.test
+coverage.out
+
+/website/node_modules/
+/website/.next/
+/website/out/
+/website/.source/
+/website/next-env.d.ts
+/website/*.tsbuildinfo
