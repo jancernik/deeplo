@@ -1,0 +1,17 @@
+.git
+.gitignore
+.dockerignore
+.gitattributes
+
+bin
+*.test
+coverage.out
+
+website
+examples
+scripts
+.github
+.config
+
+*.md
+LICENSE
