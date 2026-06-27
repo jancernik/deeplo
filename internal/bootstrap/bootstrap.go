@@ -19,7 +19,7 @@
 // DEEPLO_UNIX_SOCKET                    admin Unix socket path                     default: /run/deeplo/deeplo.sock
 // DEEPLO_ADMIN_GROUP                    group given access to the admin socket     optional (native: the operator's group)
 // DEEPLO_LOG_SERVER                     serve run logs over HTTP (true/false)      default: false
-// DEEPLO_LOG_SERVER_PORT                dedicated log-server port; 0 = HTTP port   default: 0
+// DEEPLO_LOG_SERVER_PORT                port for run logs; matches HTTP = shared   default: 8470
 
 // DEEPLO_MAX_WORKERS                    max concurrent deploys; 0 = NumCPU         default: 0
 // DEEPLO_MAX_HOST_CONCURRENCY           max concurrent deploys per host            default: 1
@@ -56,6 +56,8 @@ const (
 )
 
 const DefaultUnixSocket = "/run/deeplo/deeplo.sock"
+
+const DefaultHTTPPort = 8470
 
 type Config struct {
 	Source Source
@@ -100,9 +102,8 @@ type Config struct {
 	GitHubEnvironmentHost   bool
 }
 
-// Builds a Config from the process environment.
 func (env *Config) LogServerEnabled() bool {
-	return env.LogServer || env.LogServerPort > 0
+	return env.LogServer
 }
 
 func (env *Config) LogServerListenPort() int {
@@ -198,12 +199,12 @@ func LoadEnvFrom(getenv func(string) string) *Config {
 		SSHKnownHosts:     sshKnownHosts,
 		SSHHostKeyPolicy:  envString("DEEPLO_SSH_HOST_KEY_POLICY", "accept-new"),
 
-		HTTPPort:      envInt("DEEPLO_HTTP_PORT", 8470),
+		HTTPPort:      envInt("DEEPLO_HTTP_PORT", DefaultHTTPPort),
 		PublicURL:     envString("DEEPLO_PUBLIC_URL", ""),
 		UnixSocket:    envString("DEEPLO_UNIX_SOCKET", DefaultUnixSocket),
 		AdminGroup:    envString("DEEPLO_ADMIN_GROUP", ""),
 		LogServer:     envBool("DEEPLO_LOG_SERVER"),
-		LogServerPort: envInt("DEEPLO_LOG_SERVER_PORT", 0),
+		LogServerPort: envInt("DEEPLO_LOG_SERVER_PORT", DefaultHTTPPort),
 
 		MaxWorkers:         envInt("DEEPLO_MAX_WORKERS", 0),
 		MaxHostConcurrency: envInt("DEEPLO_MAX_HOST_CONCURRENCY", 1),

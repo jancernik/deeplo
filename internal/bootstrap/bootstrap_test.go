@@ -170,8 +170,11 @@ func TestLoad_Defaults(t *testing.T) {
 	if bc.HTTPPort != 8470 {
 		t.Errorf("HTTPPort: got %d, want 8470", bc.HTTPPort)
 	}
-	if bc.LogServer || bc.LogServerPort != 0 || bc.LogServerEnabled() {
-		t.Errorf("log server should be disabled by default, got LogServer=%v port=%d", bc.LogServer, bc.LogServerPort)
+	if bc.LogServer || bc.LogServerEnabled() {
+		t.Errorf("log server should be disabled by default, got LogServer=%v enabled=%v", bc.LogServer, bc.LogServerEnabled())
+	}
+	if bc.LogServerPort != 8470 {
+		t.Errorf("LogServerPort: got %d, want 8470", bc.LogServerPort)
 	}
 	if bc.LogRetentionDays != 14 {
 		t.Errorf("LogRetentionDays: got %d, want 14", bc.LogRetentionDays)
@@ -211,7 +214,7 @@ func TestLoad_LogServer(t *testing.T) {
 	}{
 		{"disabled by default", nil, false, 8470},
 		{"toggle on uses the http port", map[string]string{"DEEPLO_LOG_SERVER": "true"}, true, 8470},
-		{"dedicated port implies enabled", map[string]string{"DEEPLO_LOG_SERVER_PORT": "9100"}, true, 9100},
+		{"port alone does not enable", map[string]string{"DEEPLO_LOG_SERVER_PORT": "9100"}, false, 9100},
 		{"toggle and dedicated port", map[string]string{"DEEPLO_LOG_SERVER": "true", "DEEPLO_LOG_SERVER_PORT": "9100"}, true, 9100},
 	}
 	for _, testCase := range cases {

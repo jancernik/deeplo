@@ -38,7 +38,7 @@ func TestNewRunLogServer(t *testing.T) {
 
 	t.Run("dedicated port", func(t *testing.T) {
 		mux := http.NewServeMux()
-		server := newRunLogServer(&bootstrap.Config{HTTPPort: 8470, LogServerPort: 9100}, t.TempDir(), mux)
+		server := newRunLogServer(&bootstrap.Config{HTTPPort: 8470, LogServer: true, LogServerPort: 9100}, t.TempDir(), mux)
 		if server == nil {
 			t.Fatal("expected a dedicated run-log server")
 		}
