@@ -1,0 +1,38 @@
+# Full guide: https://deeplo.xyz/guides/docker-image
+
+services:
+  deeplo:
+    image: ghcr.io/jancernik/deeplo:latest
+    restart: unless-stopped
+    # ports:
+      # - "8470:8470"
+    environment:
+      DEEPLO_SSH_PRIVATE_KEY_FILE: /run/secrets/deploy_key
+      DEEPLO_SSH_USER: deploy
+      # DEEPLO_GITHUB_WEBHOOK_SECRET_FILE: /run/secrets/github_webhook_secret
+      # DEEPLO_GITHUB_TOKEN_FILE: /run/secrets/github_token
+
+      # DEEPLO_PUBLIC_URL: https://deeplo.example.com
+      # DEEPLO_LOG_SERVER: true
+      # DEEPLO_LOG_LEVEL: debug
+
+      # DEEPLO_SSH_USER=deploy
+      # DEEPLO_SSH_PORT=22
+    volumes:
+      - ./config.yml:/etc/deeplo/config.yml:ro
+      - deeplo-data:/var/lib/deeplo
+    secrets:
+      - deploy_key
+      # - github_webhook_secret
+      # - github_token
+
+volumes:
+  deeplo-data:
+
+secrets:
+  deploy_key:
+    file: ./secrets/deploy_key
+  # github_webhook_secret:
+  #   file: ./secrets/github_webhook_secret
+  # github_token:
+  #   file: ./secrets/github_token

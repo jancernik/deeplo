@@ -1,0 +1,32 @@
+# Full schema: https://deeplo.xyz/configuration/config-file
+
+hosts:
+  - name: web-1
+    address: 10.0.0.10
+    deploy_dir: /srv/apps
+    # user: deploy
+    # port: 22
+
+repos:
+  - name: myapp
+    url: git@github.com:yourorg/myapp.git
+    # branch: main
+    # trigger_mode: poll
+    # poll_interval: 60s
+
+projects:
+  - name: myapp
+    repo: myapp
+    repo_subdir: deploy
+    targets:
+      - web-1
+    # compose_files:
+    #   - docker-compose.yaml
+    # watch_paths:
+    #   - deploy/**
+    # extra_files:
+    #   - config/app.conf
+    # persist_files:
+    #   - .env
+    #   - secrets.local
+    # deploy_subdir: myapp
