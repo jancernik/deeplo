@@ -13,6 +13,19 @@ updates:
       go-modules:
         patterns: ["*"]
 
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 2
+    commit-message:
+      prefix: "build"
+      include: "scope"
+    groups:
+      website:
+        patterns: ["*"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
