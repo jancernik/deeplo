@@ -1,0 +1,45 @@
+---
+title: Introduction
+icon: BookOpen
+description: A small, self-hosted, agentless deployment tool for Docker Compose projects.
+full: true
+---
+
+<Deeplo /> deploys Docker Compose projects from your git repos to remote hosts over SSH. One small
+binary runs as both the daemon and the CLI, with nothing running on the target hosts. It stays
+deliberately narrow, and plugs right into the Compose files you already have.
+
+You define your setup in one YAML file:
+
+- **Hosts**: the remote machines you deploy to.
+- **Repos**: the git repositories to watch for new commits.
+- **Projects**: what to deploy, and which hosts to run it on.
+
+When a new commit lands on a watched repo (over a webhook or by polling), the daemon works out which projects changed, reads their Compose files from that exact commit, uploads them to each target host, and runs `docker compose up` over SSH. The result of every run is recorded locally so you can inspect it with the CLI.
+
+## Get started
+
+The daemon runs as a **systemd service** or a **Docker container**. The config (hosts, repos, projects) is identical either way, only the install and some runtime settings differ.
+
+<Cards>
+  <Card
+    title="Native install"
+    description="Run the daemon under systemd"
+    href="/guides/native-install"
+  />
+  <Card
+    title="Docker image"
+    description="Run the daemon as a container"
+    href="/guides/docker-image"
+  />
+  <Card
+    title="Configuration"
+    description="The config file and environment variables"
+    href="/configuration/configuration-model"
+  />
+  <Card
+    title="CLI reference"
+    description="Every command and its output"
+    href="/reference/cli-reference"
+  />
+</Cards>

@@ -1,0 +1,98 @@
+---
+title: Reporting & logs
+icon: BadgeCheck
+description: Report deployment status to GitHub and serve run logs.
+---
+
+When `DEEPLO_GITHUB_TOKEN_FILE` is set, <Deeplo /> reports each deploy to GitHub using the Deployments and Commit Statuses APIs. If HTTP log serving is enabled, the GitHub **Details** link can open the log for that deploy.
+
+## What gets reported
+
+For each project-host deploy target:
+
+| Event           | GitHub Deployment Status | GitHub Commit Status |
+| --------------- | ------------------------ | -------------------- |
+| Deploy starts   | `in_progress`            | `pending`            |
+| Deploy succeeds | `success`                | `success`            |
+| Deploy fails    | `failure`                | `failure`            |
+
+## GitHub token
+
+Create a [GitHub personal access token](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens) with:
+
+- **Deployments: write**
+- **Commit statuses: write**
+
+Save the token in a file, then set `DEEPLO_GITHUB_TOKEN_FILE` to that file's path.
+
+<Tabs items={['Native install', 'Docker install']}>
+
+<Tab value="Native install">
+
+Create the token file in the daemon key directory:
+
+```bash
+sudo install -m 640 -o root -g deeplo /dev/null /etc/deeplo/keys/github_token
+sudo tee /etc/deeplo/keys/github_token >/dev/null
+```
+
+Paste the token, press `Enter`, then press `Ctrl+D`.
+
+Then open the daemon environment with `deeplo env edit` and set:
+
+```text
+DEEPLO_GITHUB_TOKEN_FILE=/etc/deeplo/keys/github_token
+```
+
+</Tab>
+
+<Tab value="Docker install">
+
+Mount the token as a secret and point `DEEPLO_GITHUB_TOKEN_FILE` to it:
+
+```yaml
+services:
+  deeplo:
+    environment:
+      DEEPLO_GITHUB_TOKEN_FILE: /run/secrets/github_token
+    secrets:
+      - github_token
+
+secrets:
+  github_token:
+    file: ./secrets/github_token
+```
+
+</Tab>
+
+</Tabs>
+
+## Details links
+
+To make GitHub **Details** links open deploy logs, set a public base URL and enable the log server:
+
+- `DEEPLO_PUBLIC_URL` to the public base URL for this daemon.
+- `DEEPLO_LOG_SERVER=true` to serve run logs over HTTP.
+
+Logs are served at:
+
+```text
+GET /runs/{run_id}/logs
+```
+
+Logs share the main HTTP listener by default. Set `DEEPLO_LOG_SERVER_PORT` to a different port to serve them on a dedicated one.
+
+<Callout type="warn" title="Run logs are unauthenticated">
+The log endpoint serves plain text and has no auth. Keep it private or behind proxy auth.
+</Callout>
+
+## Environment names
+
+By default, the GitHub environment name is the project name. Use `DEEPLO_GITHUB_ENVIRONMENT` to add a prefix and `DEEPLO_GITHUB_ENVIRONMENT_HOST=true` to include the host name.
+
+| Configuration                         | Environment name     | Commit context              |
+| ------------------------------------- | -------------------- | --------------------------- |
+| Default                               | `nginx`              | `deeplo/nginx`              |
+| `DEEPLO_GITHUB_ENVIRONMENT=homelab`   | `homelab/nginx`      | `deeplo/homelab/nginx`      |
+| `DEEPLO_GITHUB_ENVIRONMENT_HOST=true` | `vm-1/nginx`         | `deeplo/vm-1/nginx`         |
+| Both set                              | `homelab/vm-1/nginx` | `deeplo/homelab/vm-1/nginx` |

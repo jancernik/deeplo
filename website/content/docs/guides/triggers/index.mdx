@@ -1,0 +1,72 @@
+---
+title: Triggers
+icon: Webhook
+description: How commits trigger deployments.
+---
+
+Triggers decide how new commits are detected and which projects deploy. By default, <Deeplo /> uses polling and checks each repo every 60 seconds.
+
+## Poll mode
+
+```yaml
+repos:
+  - name: myapp
+    url: git@github.com:yourorg/myapp.git
+    trigger_mode: poll
+    poll_interval: 60s # default
+```
+
+The daemon runs `git ls-remote` against the repo URL on a fixed interval. If the branch tip SHA has changed since the last poll, a deploy is dispatched. Incoming webhooks for poll repos are ignored.
+
+**Pros:** works without inbound network access, no extra setup required
+
+**Cons:** introduces latency up to `poll_interval`, generates periodic git traffic
+
+## Webhook mode
+
+```yaml
+repos:
+  - name: myapp
+    url: git@github.com:yourorg/myapp.git
+    trigger_mode: webhook
+```
+
+<Callout type="info">Webhook mode currently supports GitHub push events only.</Callout>
+
+The daemon registers a webhook handler at `/webhooks/github`. When GitHub sends a push event for a tracked repo and branch, it processes the event immediately.
+See [Webhooks & reachability](./webhooks-reachability.mdx) for the complete setup steps and how to make the endpoint reachable.
+
+**Pros:** instantaneous, no wasted polling
+
+**Cons:** requires the daemon to be reachable from GitHub, missed webhooks are not retried
+
+## Hybrid mode
+
+```yaml
+repos:
+  - name: myapp
+    url: git@github.com:yourorg/myapp.git
+    trigger_mode: hybrid
+    poll_interval: 5m
+```
+
+Both webhook and polling are active. A push event fires immediately, and polling fills in for missed webhooks.
+
+This is the recommended mode for setups that use webhooks. Set `poll_interval` longer than in pure poll mode, since its role is fallback, not the primary trigger.
+See [Webhooks & reachability](./webhooks-reachability.mdx) for the complete setup steps and how to make the endpoint reachable.
+
+## How projects are selected from a repo event
+
+When a new commit is detected on a repo:
+
+1. The planner finds all projects whose `repo` field matches the repo name.
+2. For each project, it checks whether any changed file matches the project's `watch_paths` glob patterns.
+3. Projects with no matching changed files are skipped.
+
+If `watch_paths` is omitted, it defaults to `["{repo_subdir}/**"]`. If the commit diff is unavailable, all matching projects deploy unconditionally. This can happen before a repo has a local diff baseline.
+
+See [Repository layout](../../configuration/repository-layout.mdx#deploy-triggers) for path matching rules and examples.
+
+## Retrying a failed deploy
+
+A failed deploy is **not** retried automatically. Each commit is dispatched once. To retry, trigger a new event by pushing a new commit or use [`deeplo deploy <project>`](../../reference/cli-reference.mdx#deeplo-deploy) to force an immediate redeploy of the current commit.

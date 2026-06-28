@@ -1,0 +1,121 @@
+---
+title: Repository layout
+icon: FolderTree
+description: How repo paths map to projects, bundles, and deploy triggers.
+---
+
+A watched repo is an ordinary git repo. <Deeplo /> only needs to know which directory contains each Compose project, which files to ship with it, and which changed paths should trigger a deploy. This works for a single app repo, but it is especially useful for an infra or monorepo that holds many Compose projects.
+
+## Example layout
+
+<Files>
+  <Folder name="infra" defaultOpen>
+    <Folder name="services" defaultOpen>
+      <Folder name="api" defaultOpen>
+        <File name="compose.yml" />
+      </Folder>
+      <Folder name="worker" defaultOpen>
+        <File name="compose.yml" />
+      </Folder>
+      <Folder name="nginx" defaultOpen>
+        <File name="compose.yml" />
+        <File name="compose.prod.yml" />
+        <File name="nginx.conf" />
+        <Folder name="certs" defaultOpen>
+          <File name="ca.pem" />
+        </Folder>
+      </Folder>
+    </Folder>
+    <Folder name="shared" defaultOpen>
+      <File name="logging.yml" />
+    </Folder>
+  </Folder>
+</Files>
+
+```yaml
+repos:
+  - name: infra
+    url: git@github.com:yourorg/infra.git
+    trigger_mode: hybrid
+
+projects:
+  - name: api
+    repo: infra
+    repo_subdir: services/api
+    targets:
+      - vm-1
+
+  - name: worker
+    repo: infra
+    repo_subdir: services/worker
+    targets:
+      - vm-1
+
+  - name: nginx
+    repo: infra
+    repo_subdir: services/nginx
+    compose_files:
+      - compose.yml
+      - compose.prod.yml
+    extra_files:
+      - nginx.conf
+      - certs
+    targets:
+      - vm-1
+      - vm-2
+```
+
+## Project paths
+
+`repo_subdir` is the project root inside the repo. `compose_files` and `extra_files` are relative to that directory.
+
+On deploy, the daemon builds a bundle from the configured `compose_files` and `extra_files`. Paths are preserved relative to `repo_subdir`, so `services/nginx/certs/ca.pem` becomes `certs/ca.pem` in the remote project directory. See [Config file](./config-file/index.mdx#projects) for the full `projects` field reference.
+
+## Config in the same repo
+
+You can keep the <Deeplo /> config in the same repo as the projects it deploys. [Read the config from git](./config-file/config-sources.mdx), then list that same repo under `repos`.
+
+This makes the repo the source of truth for both deployment rules and Compose project files. When a push changes that repo, <Deeplo /> reloads `config.yml` before planning deploys, so one commit can add a project, change its `watch_paths`, and update the files those paths point at.
+
+<Files>
+  <Folder name="infra" defaultOpen>
+    <File name="config.yml" />
+    <Folder name="services" defaultOpen>
+      <Folder name="api" defaultOpen>
+        <File name="compose.yml" />
+      </Folder>
+      <Folder name="nginx" defaultOpen>
+        <File name="compose.yml" />
+      </Folder>
+    </Folder>
+  </Folder>
+</Files>
+
+## Deploy triggers
+
+`watch_paths` decides whether a repo event affects a project. Patterns are matched against changed file paths relative to the repo root. When `watch_paths` is omitted, it defaults to the project directory:
+
+```yaml
+watch_paths:
+  - services/api/**
+```
+
+Set `watch_paths` explicitly when a project also depends on files elsewhere in the repo:
+
+```yaml
+projects:
+  - name: api
+    repo: infra
+    repo_subdir: services/api
+    watch_paths:
+      - services/api/**
+      - shared/**
+    targets:
+      - vm-1
+```
+
+In this example, the `api` project deploys for changes under `services/api/` or `shared/`. A change under `services/worker/` does not deploy it. Explicit `watch_paths` replace the default, so include the project directory unless you only want external paths to trigger deploys.
+
+<Callout type="info" title="Unknown diffs deploy the project">
+If deeplo cannot determine which files changed, the project deploys. This can happen before the repo has a baseline.
+</Callout>

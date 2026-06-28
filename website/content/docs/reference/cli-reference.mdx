@@ -1,0 +1,233 @@
+---
+title: CLI reference
+icon: SquareTerminal
+description: Every deeplo command, grouped by function.
+---
+
+## Inspect
+
+| Command          | Purpose                                                 |
+| ---------------- | ------------------------------------------------------- |
+| `deeplo deploys` | Inspect deployment state, containers, history, and logs |
+| `deeplo health`  | Show service health                                     |
+| `deeplo version` | Print the deeplo version                                |
+
+### `deeplo deploys`
+
+Inspect recorded deployment state, live container state, run history, and run logs.
+
+```bash
+deeplo deploys [flags] <subcommand> [command flags]
+```
+
+Aliases: `deployments`
+
+| Subcommand      | Description                                              |
+| --------------- | -------------------------------------------------------- |
+| `containers`    | SSH into each host and show observed container state     |
+| `history`       | List recent deploy runs                                  |
+| `logs <run-id>` | Print the log for a deploy run                           |
+| `state`         | Show the latest recorded deployment per project and host |
+
+`deploys history` flags:
+
+| Flag        | Default | Description                    |
+| ----------- | ------- | ------------------------------ |
+| `--limit`   | `20`    | Maximum number of runs to show |
+| `--project` | -       | Filter by project name         |
+| `--host`    | -       | Filter by host name            |
+
+Use `deploys history` to find run IDs for `deploys logs <run-id>`.
+
+### `deeplo health`
+
+Show service health. On native installs, checks the systemd service first. Otherwise it checks the admin socket directly.
+
+```bash
+deeplo health
+```
+
+Exit code `0` means the native service is running or the daemon socket is reachable.
+
+### `deeplo version`
+
+Print the deeplo version.
+
+```bash
+deeplo version
+```
+
+## Manage
+
+| Command            | Purpose                                       |
+| ------------------ | --------------------------------------------- |
+| `deeplo authorize` | Install the deploy public key on target hosts |
+| `deeplo config`    | Work with the managed config file             |
+| `deeplo deploy`    | Force a deploy of a project                   |
+| `deeplo probe`     | Check SSH connectivity to every host          |
+
+### `deeplo authorize`
+
+Install deeplo's deploy public key on target hosts.
+
+```bash
+deeplo authorize [host...]
+```
+
+With no arguments, authorizes every configured host. Pass host names to authorize only those hosts.
+
+The command resolves the public key from `DEEPLO_SSH_PRIVATE_KEY_FILE + ".pub"` and reads SSH user/port settings from the daemon environment and config file. It is idempotent. If the daemon is running, hosts already reachable by key are skipped.
+
+### `deeplo config`
+
+Work with the managed config file.
+
+```bash
+deeplo config [flags] <subcommand> [command flags]
+```
+
+| Subcommand | Description                                    |
+| ---------- | ---------------------------------------------- |
+| `check`    | Validate the config file and report any issues |
+| `edit`     | Open the managed config file in an editor      |
+| `path`     | Print the path to the managed config file      |
+| `reload`   | Ask the daemon to reload its config            |
+
+`config path`, `config edit`, and `config check` do not require the daemon. `config reload` requires the daemon and applies a valid changed config immediately. Invalid reloads are rejected and the current config stays active.
+
+`config edit` uses `$VISUAL`, then `$EDITOR`, then `vi` when the file is writable. If the file is not writable by the current user, it uses `sudoedit`.
+
+### `deeplo deploy`
+
+Force a deploy of a project at its current HEAD commit.
+
+```bash
+deeplo deploy <project> [flags]
+```
+
+| Flag     | Default | Description                                               |
+| -------- | ------- | --------------------------------------------------------- |
+| `--host` | -       | Deploy to this host only. Defaults to all configured hosts |
+
+The deploy runs asynchronously in the daemon. Use `deeplo deploys history` to monitor progress and `deeplo deploys logs <run-id>` to inspect output.
+
+### `deeplo probe`
+
+Check SSH connectivity to every configured host.
+
+```bash
+deeplo probe
+```
+
+The daemon performs the SSH dial because it owns the deploy key and `known_hosts`.
+
+## System
+
+| Command            | Purpose                                  |
+| ------------------ | ---------------------------------------- |
+| `deeplo daemon`    | Run the deployment daemon                |
+| `deeplo env`       | Work with the native env file            |
+| `deeplo service`   | Manage the native systemd service        |
+| `deeplo uninstall` | Uninstall deeplo and its systemd service |
+| `deeplo update`    | Update deeplo to the latest release      |
+
+### `deeplo daemon`
+
+Run the deployment daemon.
+
+```bash
+deeplo daemon
+```
+
+You do not normally run this directly. Native installs use systemd, and Docker runs it as the container's default command.
+
+The daemon is configured with `DEEPLO_*` environment variables. See [Environment variables](../configuration/environment-variables.mdx).
+
+### `deeplo env`
+
+Work with the native env file. Native installs only.
+
+```bash
+deeplo env [flags] <subcommand> [command flags]
+```
+
+| Subcommand | Description                                           |
+| ---------- | ----------------------------------------------------- |
+| `check`    | Validate the env file and referenced key/secret files |
+| `edit`     | Open the env file via `sudoedit`                      |
+| `path`     | Print the path to the env file                        |
+
+`env check` validates `DEEPLO_*` settings the same way the daemon does at startup. It also verifies referenced key and secret files are readable by the daemon service user.
+
+### `deeplo service`
+
+Manage the native systemd service. Native installs only.
+
+```bash
+deeplo service [flags] <subcommand> [command flags]
+```
+
+| Subcommand | Description                               |
+| ---------- | ----------------------------------------- |
+| `disable`  | Disable the service from starting on boot |
+| `enable`   | Enable the service to start on boot       |
+| `logs`     | Show service logs via `journalctl`        |
+| `restart`  | Restart the service                       |
+| `start`    | Start the service                         |
+| `status`   | Show the deeplo service status            |
+| `stop`     | Stop the service                          |
+
+`status` and `logs` run as the current user. Mutating commands use `sudo` when needed.
+
+`service enable` flags:
+
+| Flag    | Default | Description                        |
+| ------- | ------- | ---------------------------------- |
+| `--now` | `false` | Also start the service immediately |
+
+`service logs` flags:
+
+| Flag             | Default | Description                                   |
+| ---------------- | ------- | --------------------------------------------- |
+| `--follow`, `-f` | `false` | Stream live log output                        |
+| `--lines`, `-n`  | `50`    | Number of recent lines to show. `0` means all |
+
+### `deeplo uninstall`
+
+Uninstall deeplo and its systemd service from this host. Native installs only.
+
+```bash
+deeplo uninstall [flags]
+```
+
+| Flag      | Default | Description                                                      |
+| --------- | ------- | ---------------------------------------------------------------- |
+| `--purge` | `false` | Remove config, data, and the system user/group without prompting |
+
+Without `--purge`, config and data are preserved.
+
+### `deeplo update`
+
+Update deeplo to the latest release. Native installs only.
+
+```bash
+deeplo update [flags]
+```
+
+| Flag        | Default | Description                                       |
+| ----------- | ------- | ------------------------------------------------- |
+| `--version` | -       | Version to install. Defaults to the latest release |
+
+If the daemon was running before the update, the command restarts it after installing the new binary.
+
+## Shell completion
+
+The native installer sets up shell completion automatically when it finds bash, zsh, or fish. Generate completion scripts manually with:
+
+```bash
+deeplo completion bash
+deeplo completion zsh
+deeplo completion fish
+```
+
+`completion` is hidden from the top-level help but remains available for manual setup.

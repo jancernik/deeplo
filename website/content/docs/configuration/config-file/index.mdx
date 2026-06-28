@@ -1,0 +1,152 @@
+---
+title: Config file
+icon: FileCog
+description: Structural deployment settings for hosts, repos, and projects.
+---
+
+The config file layer holds the structural deployment settings: remote hosts, watched repositories, and Compose projects. Runtime settings, paths, and credentials live in the separate [Environment variables](../environment-variables.mdx) layer.
+
+## Top-level structure
+
+```yaml
+hosts: [...]
+repos: [...]
+projects: [...]
+```
+
+| Field      | Required | Description                             |
+| ---------- | -------- | --------------------------------------- |
+| `hosts`    | yes      | One or more remote Docker hosts.        |
+| `repos`    | yes      | One or more git repositories to watch.  |
+| `projects` | yes\*    | One or more Compose projects to deploy. |
+
+<Callout type="warn" title="An empty projects list tears everything down">
+An empty `projects` list is accepted, but it means "deploy nothing": the daemon removes every running deployment. This is the intentional way to remove everything while keeping `hosts` and `repos`.
+</Callout>
+
+---
+
+## `hosts`
+
+Each entry is a remote host where Docker Compose stacks run.
+
+```yaml
+hosts:
+  - name: web-1
+    address: 10.0.0.10
+    deploy_dir: /srv/apps
+
+  - name: web-2
+    address: 10.0.0.11
+    deploy_dir: /srv/apps
+    user: staging
+    port: 2222
+```
+
+| Field        | Required | Default           | Description                                                       |
+| ------------ | -------- | ----------------- | ----------------------------------------------------------------- |
+| `name`       | yes      | -                 | Unique identifier. Referenced by `projects[].targets`.            |
+| `address`    | yes      | -                 | Hostname or IP address.                                           |
+| `deploy_dir` | yes      | -                 | Base directory on the host where project directories are created. |
+| `user`       | no       | `DEEPLO_SSH_USER` | SSH username override for this host.                              |
+| `port`       | no       | `DEEPLO_SSH_PORT` | SSH port override for this host.                                  |
+
+---
+
+## `repos`
+
+Each entry is a git repository to watch. Projects reference repos by name.
+
+```yaml
+repos:
+  - name: infra
+    url: git@github.com:yourorg/infra.git
+    branch: main
+    trigger_mode: hybrid
+    poll_interval: 60s
+
+  - name: myapp
+    url: https://github.com/yourorg/myapp.git
+    # branch defaults to "main"
+    # trigger_mode defaults to "poll"
+```
+
+| Field           | Required | Default | Description                                                                      |
+| --------------- | -------- | ------- | -------------------------------------------------------------------------------- |
+| `name`          | yes      | -       | Unique identifier. Referenced by `projects[].repo`.                              |
+| `url`           | yes      | -       | Git clone URL (HTTPS or SSH).                                                    |
+| `branch`        | no       | `main`  | Branch to watch.                                                                 |
+| `trigger_mode`  | no       | `poll`  | `webhook`, `poll`, or `hybrid`. See [Triggers](../../guides/triggers/index.mdx). |
+| `poll_interval` | no       | `60s`   | How often to poll. Only used when mode is `poll` or `hybrid`.                    |
+
+---
+
+## `projects`
+
+Each entry is a Docker Compose project within a repo.
+
+```yaml
+projects:
+  - name: paperless
+    repo: infra
+    repo_subdir: apps/paperless
+    targets:
+      - web-1
+
+  - name: nginx
+    repo: infra
+    repo_subdir: apps/nginx
+    compose_files:
+      - compose.yml
+    targets:
+      - web-1
+      - web-2
+    watch_paths:
+      - apps/nginx/**
+    extra_files:
+      - config/nginx.conf
+      - certs/ca.pem
+    persist_files:
+      - .env
+    deploy_subdir: nginx
+```
+
+| Field           | Required | Default                | Description                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------- | -------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`          | yes      | -                      | Unique identifier. Used as the remote directory name by default.                                                                                                                                                                                                                                                                                                                                         |
+| `repo`          | yes      | -                      | Name of the repo this project belongs to.                                                                                                                                                                                                                                                                                                                                                                |
+| `repo_subdir`   | yes      | -                      | Path within the repo where compose files live (relative to repo root).                                                                                                                                                                                                                                                                                                                                   |
+| `targets`       | yes      | -                      | Host names to deploy to (from the `hosts` list).                                                                                                                                                                                                                                                                                                                                                         |
+| `compose_files` | no       | `[compose.yml]`        | Compose file names, relative to `repo_subdir`.                                                                                                                                                                                                                                                                                                                                                           |
+| `watch_paths`   | no       | `["{repo_subdir}/**"]` | Glob patterns against changed file paths. A deploy fires only if at least one changed file matches.                                                                                                                                                                                                                                                                                                      |
+| `extra_files`   | no       | -                      | Additional files to transfer, relative to `repo_subdir`. Use this for config files, certificates, or anything else referenced by the compose project. Subdirectory paths are preserved on the remote.                                                                                                                                                                                                    |
+| `persist_files` | no       | `[".env"]`             | Host-managed files to carry across deploys, such as a secret `.env`. A listed file is restored from the live directory only when the repo bundle does not ship one. Committed files and `extra_files` take precedence. Set `[]` to persist nothing. Removed on teardown. Use this for specific files only. Store application data in a Docker named volume or a bind mount outside the deploy directory. |
+| `deploy_subdir` | no       | `name`                 | Directory name under `host.deploy_dir` on the target. Defaults to the project name.                                                                                                                                                                                                                                                                                                                      |
+
+For how these fields map to a real directory tree and how `watch_paths` selects which projects deploy, see [Repository layout](../repository-layout.mdx).
+
+---
+
+## Variable interpolation
+
+You can use `${VAR}` and `${VAR:-default}` in YAML values. References are resolved from the daemon's own environment and re-evaluated on every config reload.
+
+```yaml
+hosts:
+  - name: vm-1
+    address: ${VM1_ADDR}
+    deploy_dir: /srv/deeplo/apps
+    port: ${VM1_SSH_PORT:-22}
+repos:
+  - name: myapp
+    url: ${GIT_REPO_URL}
+    branch: ${DEPLOY_BRANCH:-main}
+    poll_interval: ${POLL:-60s}
+```
+
+- **`${VAR}`**: an unset variable is an error (so typos surface loudly). A
+  variable that is _set but empty_ expands to an empty string.
+- **`${VAR:-default}`**: uses `default` when the variable is unset **or** empty.
+- **Types are inferred.** An unquoted value is re-typed after expansion, so
+  `${VM1_SSH_PORT}` can fill an integer field and `${POLL}` a duration. Quote the
+  reference (`address: "${VAR}"`) to force a string.

@@ -1,0 +1,21 @@
+{
+  "title": "deeplo",
+  "pages": [
+    "index",
+    "---Get started---",
+    "./guides/native-install",
+    "./guides/docker-image",
+    "---Guides---",
+    "./guides/triggers",
+    "./guides/reporting-logs",
+    "./guides/security",
+    "---Configuration---",
+    "./configuration/configuration-model",
+    "./configuration/environment-variables",
+    "./configuration/config-file",
+    "./configuration/repository-layout",
+    "---Reference---",
+    "./reference/cli-reference",
+    "./reference/known-limitations"
+  ]
+}

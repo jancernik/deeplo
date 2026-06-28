@@ -1,0 +1,5 @@
+{
+  "title": "Config file",
+  "icon": "FileCog",
+  "pages": ["config-sources"]
+}

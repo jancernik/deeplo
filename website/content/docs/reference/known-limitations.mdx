@@ -1,0 +1,15 @@
+---
+title: Known limitations
+icon: TriangleAlert
+description: Scope and tradeoffs.
+---
+
+<Deeplo /> is a small deploy runner for Docker Compose over SSH, not a full CI/CD platform:
+
+- **No build pipeline.** The daemon does not build artifacts, run test suites, manage approvals, or orchestrate release stages. It reacts to commits and runs Docker Compose on your hosts.
+
+- **No rollback system.** To roll back, deploy a prior commit or revert and push a new one. Failed deploys are recorded, but recovery is a new deploy.
+
+- **Point-in-time verification only.** After deploy, the daemon checks `docker compose ps` once. It is not a monitoring system and does not redeploy when a container later becomes unhealthy.
+
+- **Compose project granularity.** Deploys run `docker compose up --force-recreate` for the project. The daemon does not decide which individual services changed.

@@ -1,0 +1,66 @@
+---
+title: Security
+icon: ShieldCheck
+description: SSH, deploy keys, and host access.
+---
+
+## SSH trust model
+
+The daemon connects to target hosts over SSH using `DEEPLO_SSH_PRIVATE_KEY_FILE`. Host key checking is controlled by `DEEPLO_SSH_HOST_KEY_POLICY`:
+
+| Policy                 | Behavior                                                                      |
+| ---------------------- | ----------------------------------------------------------------------------- |
+| `accept-new` (default) | Trusts a host key on first connection, then verifies it on later connections. |
+| `strict`               | Connects only to hosts already present in `known_hosts`.                      |
+
+Known hosts are stored at `DEEPLO_DATA_DIR/known_hosts` by default. You can override the path with `DEEPLO_SSH_KNOWN_HOSTS`.
+
+For strict mode, pre-populate the file:
+
+```bash
+ssh-keyscan 10.0.0.10 10.0.0.11 >> /path/to/known_hosts
+```
+
+## The deploy user
+
+The daemon SSHes into each target as a deploy user. That user needs write access to `deploy_dir` and permission to run Docker Compose.
+
+```bash
+sudo useradd -m -s /bin/bash deploy
+sudo usermod -aG docker deploy
+sudo install -d -o deploy -g deploy /srv/apps
+
+sudo passwd deploy              # needed for deeplo authorize or ssh-copy-id
+```
+
+Use a dedicated account. Do not reuse your personal user, and do not grant unrelated groups or sudo access.
+
+## Deploy key
+
+Use a dedicated SSH key pair for deployments. Do not reuse a personal key.
+
+- The **private key** stays on the machine or container running the daemon.
+- The **public key** is authorized on each target host for the deploy user.
+- The same key is also used to fetch git repos over SSH.
+
+For setup steps, see:
+
+- [Native install](./native-install.mdx#authorize-the-deploy-key)
+- [Docker image](./docker-image.mdx#authorize-the-deploy-key)
+
+To restrict the key further, pin it to the daemon host's IP in `authorized_keys`:
+
+```bash
+from="203.0.113.10" ssh-ed25519 AAAA... deeplo
+```
+
+## No agent on targets
+
+Nothing runs permanently on target hosts. The daemon connects over SSH only when it deploys or inspects state, so the target-side attack surface is the deploy user's SSH access.
+
+## Operational practices
+
+- Run the daemon as a dedicated non-root user.
+- Keep private keys and token files readable only by the daemon.
+- Keep `DEEPLO_DATA_DIR` on a local filesystem with restricted permissions.
+- Remove stale host keys from `known_hosts` when hosts are replaced.

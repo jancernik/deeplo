@@ -1,0 +1,31 @@
+---
+title: Configuration model
+icon: Settings2
+description: How the config file and environment variables fit together.
+full: true
+---
+
+<Deeplo /> uses two configuration surfaces:
+
+- **Environment variables** configure the daemon process: data directory, SSH key, ports, tokens, logging.
+- The **config file** describes deployments: hosts, repos, projects, branches, targets, watch paths.
+
+The daemon reads the environment first, then loads the config file from local disk or from git. A valid config can replace the active one while the daemon is running. An invalid reload is rejected and the current config stays active.
+
+<Callout type="success" title="Safe to version">
+The config file can live in source control because it should not contain raw secrets. It can be read from local disk or from a git repo. See [Config sources](./config-file/config-sources.mdx).
+When useful, YAML values can also reference environment variables with `${VAR}` or `${VAR:-default}`. See [Config file](./config-file/index.mdx#variable-interpolation).
+</Callout>
+
+<Cards>
+  <Card
+    title="Environment variables"
+    description="Runtime settings, paths, ports, secrets"
+    href="/configuration/environment-variables"
+  />
+  <Card
+    title="Config file"
+    description="Hosts, repos, projects, targets, triggers"
+    href="/configuration/config-file"
+  />
+</Cards>

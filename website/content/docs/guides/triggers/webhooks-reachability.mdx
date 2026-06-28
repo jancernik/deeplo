@@ -1,0 +1,46 @@
+---
+title: Webhooks & reachability
+icon: Globe
+description: Configure webhook-based deploy triggers.
+---
+
+Webhook and hybrid mode need your git provider to reach the daemon's webhook endpoint. This page covers the endpoint, the shared secret, and the common ways to make it reachable.
+
+<Callout type="info">Webhook mode currently supports GitHub push events only.</Callout>
+
+## Make the endpoint reachable
+
+GitHub delivers webhook events by sending an HTTP POST to <Deeplo />. That means `/webhooks/github` must be reachable from the public internet.
+
+Common options:
+
+- Run the daemon on a public server if it already has a public IP and you control the firewall rules.
+- Put it behind a reverse proxy like Caddy, Nginx, or Traefik. This is a good fit when the daemon already runs on a public server and you want HTTPS, routing, and a normal domain.
+- Use a tunnel like Cloudflare Tunnel, Pangolin, or ngrok. This is useful when the daemon runs behind NAT, in a homelab, or on a private machine you do not want to expose directly.
+
+Do not put a login page, SSO, or basic auth in front of the webhook endpoint. GitHub has to POST to it directly. The webhook secret is what authenticates the request.
+
+## Create the webhook secret
+
+Generate a random string with:
+
+```bash
+openssl rand -hex 32
+# or
+pwgen -s 64 1
+```
+
+Store the secret in a file pointed to by `DEEPLO_GITHUB_WEBHOOK_SECRET_FILE`.
+
+<Callout type="warn">
+Set a webhook secret for any endpoint reachable from outside your network.
+</Callout>
+
+## Add the GitHub webhook
+
+Follow GitHub's [Creating webhooks](https://docs.github.com/en/webhooks/using-webhooks/creating-webhooks) guide. For <Deeplo />, use:
+
+- **Payload URL:** `https://your-host/webhooks/github`
+- **Content type:** `application/json`
+- **Secret:** the value generated above
+- **Events:** just the push event

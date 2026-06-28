@@ -1,0 +1,81 @@
+---
+title: Config sources
+icon: GitBranch
+description: Local config file or config in git.
+---
+
+The structural YAML config can live on disk or in a git repository.
+
+<Tabs items={['Local file', 'Git repository']}>
+
+<Tab value="Local file">
+
+By default the daemon reads `DEEPLO_CONFIG_FILE`.
+
+```bash
+DEEPLO_CONFIG_FILE=/etc/deeplo/config.yml
+```
+
+### Automatic reloads
+
+Set `DEEPLO_CONFIG_WATCH=true` to reload valid local file changes automatically.
+
+```bash
+DEEPLO_CONFIG_WATCH=true
+```
+
+Invalid edits are rejected and the current in-memory config stays active.
+
+<Callout type="warn" title="In Docker, mount the config directory">
+If you use `DEEPLO_CONFIG_WATCH` in Docker, bind-mount the directory that contains `config.yml`, not the file itself. Many editors and config-management tools save changes by writing a temporary file and renaming it over the original. With a single-file bind mount, the container can stay attached to the old file inode and never receive the change event. Mounting the directory lets the replacement file appear inside the container.
+
+```yaml
+volumes:
+  - ./deeplo-config:/etc/deeplo:ro
+  - deeplo-data:/var/lib/deeplo
+```
+
+Put `config.yml` inside `./deeplo-config/`. Without automatic reloads, a single-file mount is fine.
+
+</Callout>
+
+</Tab>
+
+<Tab value="Git repository">
+
+Set `DEEPLO_CONFIG_REPO_URL` to read the config from a git repository.
+
+```bash
+DEEPLO_CONFIG_REPO_URL=git@github.com:yourorg/deeplo-config.git
+DEEPLO_CONFIG_REPO_BRANCH=main
+DEEPLO_CONFIG_REPO_FILE=config.yml
+DEEPLO_CONFIG_REPO_MODE=hybrid
+```
+
+The daemon uses `DEEPLO_SSH_PRIVATE_KEY_FILE` to fetch private config repos. It stores the repo mirror and cache under `DEEPLO_DATA_DIR`.
+
+### Change detection
+
+`DEEPLO_CONFIG_REPO_MODE` sets how new config commits are detected:
+
+| Value     | Description                                                |
+| --------- | ---------------------------------------------------------- |
+| `poll`    | Check for new commits every `DEEPLO_CONFIG_REPO_INTERVAL`. |
+| `webhook` | Reload on GitHub push events at `/webhooks/github`.        |
+| `hybrid`  | Use webhooks for fast reloads and polling as a fallback.   |
+
+Webhook and hybrid require a reachable webhook endpoint. See [Webhooks & reachability](../../guides/triggers/webhooks-reachability.mdx).
+
+</Tab>
+
+</Tabs>
+
+---
+
+## Reloads and fallback
+
+Local files are read directly. The daemon must be able to read and parse the file on startup. After startup, failed reloads are rejected and the current in-memory config stays active.
+
+When config comes from git, <Deeplo /> keeps the last valid version under `DEEPLO_DATA_DIR/config/`.
+
+If the repo cannot be fetched on startup, the cached config is used when one exists. Without a valid fetched config or cache, startup fails. Later reloads work the same way as local file reloads: a valid config replaces the current one, and a missing, malformed, or invalid config is ignored.

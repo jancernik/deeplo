@@ -1,0 +1,169 @@
+---
+title: Native install
+icon: Server
+description: Install deeplo under systemd and run your first deploy.
+---
+
+**Prerequisites:**
+
+- A Linux host with systemd
+- At least one remote host running Docker with the Compose plugin
+- SSH access to those remote hosts
+- `sudo` on the host
+
+<Steps>
+
+<Step>
+
+### Install
+
+```bash
+curl -fsSL https://deeplo.xyz/install.sh | sh
+```
+
+The script installs the binary, creates a service user and deploy key, and installs the systemd unit.
+
+<Callout type="info">
+The installer also accepts:
+
+- `--build`: compile from a local source checkout
+- `--version vX.Y.Z`: pin a specific release
+</Callout>
+
+</Step>
+
+<Step>
+
+### Edit the config
+
+Open the config with `deeplo config edit` and replace the example values with your own:
+
+```yaml
+hosts:
+  - name: web-1
+    address: 10.0.0.10 # your host IP or hostname
+    deploy_dir: /srv/apps
+
+repos:
+  - name: myapp
+    url: git@github.com:yourorg/myapp.git
+    branch: main
+
+projects:
+  - name: myapp
+    repo: myapp
+    repo_subdir: deploy # directory in repo containing compose.yml
+    persist_files:
+      - .env
+    targets:
+      - web-1
+```
+
+<Callout type="warn" title="The deploy directory is rebuilt each time">
+Each deploy rebuilds the project's remote directory from the commit and replaces the previous contents. A file that lives only on the host (a token you copied in, a runtime-generated file) won't survive the next deploy unless you persist it:
+
+- **Keep specific files** by listing them in `persist_files` (defaults to `[".env"]`, `[]` keeps nothing).
+- **Store data** in a Docker named volume or a bind mount outside the deploy directory.
+</Callout>
+
+Then validate it:
+
+```bash
+deeplo config check
+```
+
+See [Config file](../configuration/config-file/index.mdx) for the full schema.
+
+</Step>
+
+<Step>
+
+### Authorize the deploy key
+
+Open the env file with `deeplo env edit` and confirm `DEEPLO_SSH_USER` matches your deploy user. If you need to create one, see [the deploy user](./security.mdx#the-deploy-user). Then install the deploy key on each target:
+
+```bash
+deeplo authorize          # all configured hosts, prompts for each host's password
+```
+
+This authorizes the daemon to SSH into each configured host with its configured user and port.
+
+To do manually, append the contents of `/etc/deeplo/keys/deploy_key.pub` to `~/.ssh/authorized_keys` for the deploy user on each target.
+
+The daemon uses the same key to fetch your repos over SSH. For private repos, grant that key read access. On GitHub, for example, you can add `deploy_key.pub` as a read-only [deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys).
+
+</Step>
+
+<Step>
+
+### Start the daemon
+
+```bash
+deeplo service enable --now   # start now, and on every boot
+deeplo health                 # confirm it's running and reachable
+```
+
+On start, the daemon reconciles your config and deploys every configured project at its current commit, so your first deploy begins right away.
+
+</Step>
+
+<Step>
+
+### Watch the first deploy
+
+Follow it in the logs:
+
+```bash
+deeplo service logs -f
+```
+
+Then check the result:
+
+```bash
+deeplo deploys state          # latest state per project-host
+deeplo deploys history        # recent runs
+deeplo deploys logs <run-id>  # log for a run (id from history)
+```
+
+To see all available commands, use `deeplo --help` or browse the [CLI reference](../reference/cli-reference.mdx).
+
+</Step>
+
+</Steps>
+
+---
+
+## Next steps
+
+<Cards>
+  <Card
+    title="Triggers"
+    description="Webhook, poll, and hybrid trigger modes"
+    href="/guides/triggers"
+  />
+  <Card
+    title="Repository layout"
+    description="How to lay out a repo and its compose files"
+    href="/configuration/repository-layout"
+  />
+</Cards>
+
+## Upgrading
+
+```bash
+deeplo update                   # install the latest release
+deeplo update --version v0.2.1  # or pin a specific version
+```
+
+It downloads the new binary and restarts the daemon if it was running. In-flight deploys get up to `DEEPLO_SHUTDOWN_GRACE` (default 30s) to finish first.
+
+## Uninstalling
+
+```bash
+deeplo uninstall           # remove the binary and systemd service, keep config and data
+deeplo uninstall --purge   # also remove config, data, and the deeplo user/group
+```
+
+Both options leave your target hosts untouched. Deployed app directories and the deploy key in each host's `~/.ssh/authorized_keys` stay in place. Remove them manually if you no longer need them.
+
+---

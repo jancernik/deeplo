@@ -1,0 +1,5 @@
+/install.sh https://raw.githubusercontent.com/jancernik/deeplo/main/scripts/install.sh
+
+/guides /guides/native-install 301
+/reference /reference/cli-reference 301
+/configuration /configuration/configuration-model 301

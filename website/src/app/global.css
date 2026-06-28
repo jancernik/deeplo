@@ -1,0 +1,29 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/black.css';
+@import 'fumadocs-ui/css/preset.css';
+
+:root {
+  --color-fd-primary: hsl(257, 82%, 65%);
+  --color-fd-primary-foreground: hsl(0, 0%, 98%);
+  --color-fd-ring: hsl(257, 82%, 65%);
+}
+
+.dark {
+  --color-fd-primary: hsl(257, 82%, 80%);
+  --color-fd-primary-foreground: hsl(257, 60%, 8%);
+  --color-fd-ring: hsl(257, 82%, 80%);
+}
+
+.brand {
+  color: var(--color-fd-primary);
+  font-weight: 600;
+}
+
+html {
+  scrollbar-gutter: stable;
+}
+
+html > body[data-scroll-locked] {
+  margin-right: 0px !important;
+  --removed-body-scroll-bar-size: 0px !important;
+}
