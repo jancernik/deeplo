@@ -4,7 +4,7 @@ set -euo pipefail
 # deeplo installer - Linux only
 
 # Usage:
-#   curl -fsSL https://deeplo.xyz/install.sh | sh
+#   curl -fsSL https://deeplo.xyz/install.sh | bash
 #   bash install.sh [--build] [--version <tag>]
 
 # Runs as the current user. Prompts for sudo for privileged steps.
