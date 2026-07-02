@@ -1,11 +1,11 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 # deeplo installer - Linux only
 
 # Usage:
-#   curl -fsSL https://deeplo.xyz/install.sh | bash
-#   bash install.sh [--build] [--version <tag>]
+#   curl -fsSL https://deeplo.xyz/install.sh | sh
+#   sh install.sh [--build] [--version <tag>]
 
 # Runs as the current user. Prompts for sudo for privileged steps.
 # To update or remove an existing install, use: deeplo update / deeplo uninstall
@@ -39,14 +39,14 @@ die() {
 
 # cleanup
 
-_CLEANUP_DIRS=()
+_CLEANUP_DIRS=""
 _SUDO_KEEPALIVE_PID=""
 
 _cleanup() {
-	if [[ -n "$_SUDO_KEEPALIVE_PID" ]]; then
+	if [ -n "$_SUDO_KEEPALIVE_PID" ]; then
 		kill "$_SUDO_KEEPALIVE_PID" 2>/dev/null || true
 	fi
-	for dir in "${_CLEANUP_DIRS[@]+"${_CLEANUP_DIRS[@]}"}"; do
+	for dir in $_CLEANUP_DIRS; do
 		rm -rf "$dir"
 	done
 }
@@ -56,24 +56,23 @@ trap '_cleanup' EXIT
 # system checks
 
 preflight() {
-	local missing=()
+	missing=""
 	for tool in curl ssh-keygen install tee useradd groupadd systemctl; do
-		command -v "$tool" &>/dev/null || missing+=("$tool")
+		command -v "$tool" >/dev/null 2>&1 || missing="$missing $tool"
 	done
-	if [[ ${#missing[@]} -gt 0 ]]; then
-		die "Required tools not found: ${missing[*]}"
+	if [ -n "$missing" ]; then
+		die "Required tools not found:$missing"
 	fi
 }
 
 require_systemd() {
-	command -v systemctl &>/dev/null ||
+	command -v systemctl >/dev/null 2>&1 ||
 		die "systemctl not found - deeplo requires a systemd-based Linux system"
-	[[ -d /run/systemd/system ]] ||
+	[ -d /run/systemd/system ] ||
 		die "systemd does not appear to be the active init system (missing /run/systemd/system)"
 }
 
 detect_arch() {
-	local arch
 	arch=$(uname -m)
 	case "$arch" in
 	x86_64) echo "amd64" ;;
@@ -83,16 +82,15 @@ detect_arch() {
 }
 
 detect_os() {
-	local os
 	os=$(uname -s)
-	[[ "$os" == "Linux" ]] || die "deeplo requires Linux (got: $os)"
+	[ "$os" = "Linux" ] || die "deeplo requires Linux (got: $os)"
 	echo "linux"
 }
 
 # privilege helpers
 
 run_root() {
-	if [[ $EUID -eq 0 ]]; then
+	if [ "$(id -u)" -eq 0 ]; then
 		"$@"
 	else
 		sudo "$@"
@@ -100,9 +98,9 @@ run_root() {
 }
 
 require_sudo() {
-	[[ $EUID -eq 0 ]] && return
+	[ "$(id -u)" -eq 0 ] && return 0
 
-	command -v sudo &>/dev/null ||
+	command -v sudo >/dev/null 2>&1 ||
 		die "sudo is required for privileged steps but was not found"
 
 	info Requesting sudo access...
@@ -118,22 +116,21 @@ require_sudo() {
 # helpers
 
 latest_version() {
-	local version
 	version=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
 		grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
-	[[ -n "$version" ]] || die "Could not determine latest version from GitHub API"
+	[ -n "$version" ] || die "Could not determine latest version from GitHub API"
 	echo "$version"
 }
 
 download_binary() {
-	local version="$1" arch="$2"
-	local base_url="https://github.com/${GITHUB_REPO}/releases/download/${version}"
-	local tmp_dir
+	version="$1"
+	arch="$2"
+	base_url="https://github.com/${GITHUB_REPO}/releases/download/${version}"
 	tmp_dir=$(mktemp -d)
-	_CLEANUP_DIRS+=("$tmp_dir")
+	_CLEANUP_DIRS="$_CLEANUP_DIRS $tmp_dir"
 
 	info "Downloading deeplo ${version} (linux/${arch})..."
-	local url="${base_url}/deeplo_linux_${arch}"
+	url="${base_url}/deeplo_linux_${arch}"
 	curl -fsSL --progress-bar -o "${tmp_dir}/deeplo" "$url" ||
 		die "Failed to download ${url}"
 	chmod +x "${tmp_dir}/deeplo"
@@ -142,23 +139,24 @@ download_binary() {
 }
 
 resolve_build_version() {
-	local src_dir="${DEEPLO_SOURCE_DIR:-$(pwd)}"
+	src_dir="${DEEPLO_SOURCE_DIR:-$(pwd)}"
 	git -C "$src_dir" rev-parse --short HEAD 2>/dev/null || echo "dev"
 }
 
 build_from_source() {
-	local version="$1"
-	local src_dir="${DEEPLO_SOURCE_DIR:-$(pwd)}"
+	version="$1"
+	src_dir="${DEEPLO_SOURCE_DIR:-$(pwd)}"
 
-	[[ -f "${src_dir}/go.mod" ]] ||
-		die $'--build requires a Go source tree; go.mod not found in: '"${src_dir}"$'\n  Set DEEPLO_SOURCE_DIR or run from the repo root'
+	[ -f "${src_dir}/go.mod" ] ||
+		die "--build requires a Go source tree; go.mod not found in: ${src_dir}
+  Set DEEPLO_SOURCE_DIR or run from the repo root"
 
-	command -v go &>/dev/null ||
-		die $'--build requires a Go toolchain; \'go\' not found in PATH\n  Install Go from https://go.dev/dl/ or remove --build to download a release binary'
+	command -v go >/dev/null 2>&1 ||
+		die "--build requires a Go toolchain; 'go' not found in PATH
+  Install Go from https://go.dev/dl/ or remove --build to download a release binary"
 
-	local tmp_dir
 	tmp_dir=$(mktemp -d)
-	_CLEANUP_DIRS+=("$tmp_dir")
+	_CLEANUP_DIRS="$_CLEANUP_DIRS $tmp_dir"
 
 	info "Building deeplo from source (${src_dir})..."
 	(cd "$src_dir" && go build -trimpath \
@@ -174,7 +172,7 @@ build_from_source() {
 # privileged helpers
 
 _install_binary() {
-	local src_dir="$1"
+	src_dir="$1"
 	run_root install -m 755 "${src_dir}/deeplo" "${INSTALL_DIR}/deeplo"
 	success "Installed binary to ${INSTALL_DIR}/deeplo"
 }
@@ -205,28 +203,28 @@ EOF
 }
 
 _install_completions() {
-	local deeplo="${INSTALL_DIR}/deeplo"
-	local installed=()
+	deeplo="${INSTALL_DIR}/deeplo"
+	installed=0
 
-	if [[ -d /usr/share/bash-completion/completions ]] &&
+	if [ -d /usr/share/bash-completion/completions ] &&
 		"$deeplo" completion bash 2>/dev/null |
 		run_root tee /usr/share/bash-completion/completions/deeplo >/dev/null; then
-		installed+=("bash")
+		installed=1
 	fi
 
-	if [[ -d /usr/share/zsh/site-functions ]] &&
+	if [ -d /usr/share/zsh/site-functions ] &&
 		"$deeplo" completion zsh 2>/dev/null |
 		run_root tee /usr/share/zsh/site-functions/_deeplo >/dev/null; then
-		installed+=("zsh")
+		installed=1
 	fi
 
-	if [[ -d /usr/share/fish/vendor_completions.d ]] &&
+	if [ -d /usr/share/fish/vendor_completions.d ] &&
 		"$deeplo" completion fish 2>/dev/null |
 		run_root tee /usr/share/fish/vendor_completions.d/deeplo.fish >/dev/null; then
-		installed+=("fish")
+		installed=1
 	fi
 
-	if [[ ${#installed[@]} -gt 0 ]]; then
+	if [ "$installed" -eq 1 ]; then
 		success "Installed shell completions"
 	fi
 }
@@ -234,24 +232,23 @@ _install_completions() {
 # install
 
 do_install() {
-	local arch bin_dir
-	local local_bin="${DEEPLO_LOCAL_BIN:-}"
+	local_bin="${DEEPLO_LOCAL_BIN:-}"
 
 	preflight
 	detect_os >/dev/null
 	arch=$(detect_arch)
 
-	if [[ -n "$local_bin" ]]; then
-		[[ -f "${local_bin}/deeplo" ]] ||
+	if [ -n "$local_bin" ]; then
+		[ -f "${local_bin}/deeplo" ] ||
 			die "DEEPLO_LOCAL_BIN=${local_bin} must contain a 'deeplo' binary"
 		bin_dir="$local_bin"
 		VERSION="local"
 		info "Using local binary from ${local_bin}"
-	elif [[ "$BUILD_LOCAL" == "true" ]]; then
+	elif [ "$BUILD_LOCAL" = "true" ]; then
 		VERSION=$(resolve_build_version)
 		bin_dir=$(build_from_source "$VERSION")
 	else
-		[[ -z "$VERSION" ]] && VERSION=$(latest_version)
+		[ -z "$VERSION" ] && VERSION=$(latest_version)
 		bin_dir=$(download_binary "$VERSION" "$arch")
 	fi
 
@@ -260,20 +257,20 @@ do_install() {
 	require_systemd
 	require_sudo
 
-	getent group "$SERVICE_GROUP" &>/dev/null ||
+	getent group "$SERVICE_GROUP" >/dev/null 2>&1 ||
 		run_root groupadd --system "$SERVICE_GROUP"
-	id "$SERVICE_USER" &>/dev/null ||
+	id "$SERVICE_USER" >/dev/null 2>&1 ||
 		run_root useradd --system --no-create-home --shell /usr/sbin/nologin \
 			--gid "$SERVICE_GROUP" --comment "deeplo deployment daemon" "$SERVICE_USER"
 
 	operator="${SUDO_USER:-$(id -un)}"
 	OPERATOR_GROUP=""
-	if [[ -n "$operator" && "$operator" != "root" ]]; then
+	if [ -n "$operator" ] && [ "$operator" != "root" ]; then
 		OPERATOR_GROUP="$(id -gn "$operator" 2>/dev/null || true)"
 	fi
 
 	for dir in "$CONFIG_DIR" "$KEYS_DIR" "$DATA_DIR"; do
-		[[ -d "$dir" ]] || run_root mkdir -p "$dir"
+		[ -d "$dir" ] || run_root mkdir -p "$dir"
 	done
 	run_root chown "root:root" "$CONFIG_DIR"
 	run_root chmod 755 "$CONFIG_DIR"
@@ -283,9 +280,8 @@ do_install() {
 	run_root chmod 750 "$DATA_DIR"
 
 	if ! run_root test -f "$DEPLOY_KEY_FILE"; then
-		local key_tmp
 		key_tmp=$(mktemp -d)
-		_CLEANUP_DIRS+=("$key_tmp")
+		_CLEANUP_DIRS="$_CLEANUP_DIRS $key_tmp"
 		ssh-keygen -t ed25519 -C "deeplo-deploy-key" -N "" -f "${key_tmp}/deploy_key" -q
 		run_root install -m 640 -o root -g "${SERVICE_GROUP}" \
 			"${key_tmp}/deploy_key" "$DEPLOY_KEY_FILE"
@@ -298,9 +294,9 @@ do_install() {
 
 	_install_completions
 
-	[[ -f "$UNIT_FILE" ]] || _install_unit
+	[ -f "$UNIT_FILE" ] || _install_unit
 
-	if [[ ! -f "$ENV_FILE" ]]; then
+	if [ ! -f "$ENV_FILE" ]; then
 		run_root tee "$ENV_FILE" >/dev/null <<EOF
 Full reference: https://deeplo.xyz/configuration/environment-variables
 DEEPLO_DATA_DIR=${DATA_DIR}
@@ -321,7 +317,7 @@ EOF
 		run_root chmod 644 "$ENV_FILE"
 	fi
 
-	if [[ ! -f "$CONFIG_FILE" ]]; then
+	if [ ! -f "$CONFIG_FILE" ]; then
 		run_root tee "$CONFIG_FILE" >/dev/null <<'YAMLEOF'
 # Define your hosts, repos, and projects below.
 # Full schema: https://deeplo.xyz/configuration/config-file
@@ -385,14 +381,14 @@ EOF
 BUILD_LOCAL=false
 VERSION="${DEEPLO_VERSION:-}"
 
-while [[ $# -gt 0 ]]; do
+while [ $# -gt 0 ]; do
 	case "$1" in
 	--build)
 		BUILD_LOCAL=true
 		shift
 		;;
 	--version)
-		[[ $# -ge 2 ]] || die "--version requires an argument (e.g. --version v1.2.3)"
+		[ $# -ge 2 ] || die "--version requires an argument (e.g. --version v1.2.3)"
 		VERSION="$2"
 		shift 2
 		;;
