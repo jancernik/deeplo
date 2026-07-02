@@ -298,7 +298,7 @@ do_install() {
 
 	if [ ! -f "$ENV_FILE" ]; then
 		run_root tee "$ENV_FILE" >/dev/null <<EOF
-Full reference: https://deeplo.xyz/configuration/environment-variables
+# Full reference: https://deeplo.xyz/configuration/environment-variables
 DEEPLO_DATA_DIR=${DATA_DIR}
 DEEPLO_SSH_PRIVATE_KEY_FILE=${DEPLOY_KEY_FILE}
 DEEPLO_ADMIN_GROUP=${OPERATOR_GROUP}
