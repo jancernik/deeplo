@@ -73,7 +73,7 @@ func (loop *reconcileLoop) pass(ctx context.Context) {
 
 	// Never reconcile against a broken/unconfigured config.
 	if issues := current.BlockingIssues(); len(issues) > 0 {
-		loop.logger.Warn("config incomplete; skipping reconcile and keeping existing deployments",
+		loop.logger.Warn("config incomplete, skipping reconcile and keeping existing deployments",
 			"issues", len(issues))
 		return
 	}

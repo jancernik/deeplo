@@ -12,7 +12,7 @@ func ProbeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "probe",
 		Short: "Check SSH connectivity to every host",
-		Long: `probe asks the running daemon to dial each configured host over SSH with the
+		Long: `Ask the running daemon to dial each configured host over SSH with the
 deploy key and report connectivity.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resp, err := daemonClient().Probe(cmd.Context())
@@ -34,9 +34,9 @@ func printProbeResults(cmd *cobra.Command, hosts []api.ProbeHost) error {
 	var failed int
 	for _, host := range hosts {
 		if host.OK {
-			fmt.Fprintf(out, "PROBE OK    %-20s  %s\n", host.Host, host.Address) //nolint:errcheck
+			fmt.Fprintf(out, "OK    %-20s  %s\n", host.Host, host.Address) //nolint:errcheck
 		} else {
-			fmt.Fprintf(out, "PROBE FAIL  %-20s  %s\n", host.Host, host.Error) //nolint:errcheck
+			fmt.Fprintf(out, "FAIL  %-20s  %s\n", host.Host, host.Error) //nolint:errcheck
 			failed++
 		}
 	}

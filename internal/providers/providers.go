@@ -44,7 +44,7 @@ func WarnAmbiguousReporting(env *bootstrap.Config, deployConfig *config.Config, 
 	}
 	for _, project := range deployConfig.Projects {
 		if len(project.Targets) > 1 {
-			logger.Warn("github reporting collides for multi-host project: only the last host stays active - set DEEPLO_GITHUB_ENVIRONMENT_HOST=true to give each host its own environment",
+			logger.Warn("github reporting collides for multi-host project: only the last host stays active, set DEEPLO_GITHUB_ENVIRONMENT_HOST=true to give each host its own environment",
 				"project", project.Name, "hosts", len(project.Targets))
 		}
 	}
@@ -60,7 +60,7 @@ func RegisterWebhooks(
 ) error {
 	if env.GitHubWebhookSecretFile == "" {
 		if anyRepoUsesWebhooks(deployConfig) {
-			logger.Warn("github webhook handler not registered - set DEEPLO_GITHUB_WEBHOOK_SECRET_FILE to enable webhook-triggered deploys")
+			logger.Warn("github webhook handler not registered, set DEEPLO_GITHUB_WEBHOOK_SECRET_FILE to enable webhook-triggered deploys")
 		}
 		return nil
 	}

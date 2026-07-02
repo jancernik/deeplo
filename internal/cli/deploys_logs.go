@@ -10,7 +10,7 @@ func newDeploysLogsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "logs <run-id>",
 		Short: "Print the log for a deploy run",
-		Long:  `logs prints the plain-text log for a specific deploy run.`,
+		Long:  `Print the plain-text log for a specific deploy run.`,
 		Args:  exactArg("run-id", "see 'deeplo deploys history' for run IDs"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			log, err := daemonClient().RunLog(cmd.Context(), args[0])

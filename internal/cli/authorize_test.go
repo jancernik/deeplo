@@ -107,7 +107,7 @@ func TestAuthorizeAllHosts(t *testing.T) {
 	if got := (*calls)[0].publicKey; !strings.Contains(got, "ssh-ed25519 AAAAtest deeplo") {
 		t.Errorf("expected the deploy public key, got %q", got)
 	}
-	if !strings.Contains(out, "authorized web-1") || !strings.Contains(out, "authorized web-2") {
+	if !strings.Contains(out, "Authorized web-1") || !strings.Contains(out, "Authorized web-2") {
 		t.Errorf("expected success output for both hosts, got: %q", out)
 	}
 }

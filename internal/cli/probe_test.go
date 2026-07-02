@@ -22,7 +22,7 @@ func TestProbeReportsReachableHosts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	for _, want := range []string{"PROBE OK", "web-1", "10.0.0.10", "web-2", "10.0.0.20"} {
+	for _, want := range []string{"OK    ", "web-1", "10.0.0.10", "web-2", "10.0.0.20"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
@@ -43,7 +43,7 @@ func TestProbeFailsWhenHostUnreachable(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected an error when a host is unreachable, output:\n%s", out)
 	}
-	if !strings.Contains(out, "PROBE FAIL") || !strings.Contains(out, "dial timeout") {
+	if !strings.Contains(out, "FAIL  ") || !strings.Contains(out, "dial timeout") {
 		t.Errorf("expected failure line for web-2, got:\n%s", out)
 	}
 }

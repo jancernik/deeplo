@@ -143,8 +143,8 @@ func TestUninstallInteractivePlain(t *testing.T) {
 	if purged {
 		t.Error("answer 'n' should not purge config/data/user/group")
 	}
-	if !strings.Contains(out, "Config and data preserved") {
-		t.Errorf("expected 'Config and data preserved' output, got: %q", out)
+	if !strings.Contains(out, "Config, data, and the deeplo user remain") {
+		t.Errorf("expected 'preserved notice' output, got: %q", out)
 	}
 }
 
@@ -155,7 +155,7 @@ func TestUninstallInteractiveDefault(t *testing.T) {
 	if purged {
 		t.Error("empty answer should default to no purge")
 	}
-	if !strings.Contains(out, "Config and data preserved") {
-		t.Errorf("expected 'Config and data preserved' output, got: %q", out)
+	if !strings.Contains(out, "Config, data, and the deeplo user remain") {
+		t.Errorf("expected 'preserved notice' output, got: %q", out)
 	}
 }

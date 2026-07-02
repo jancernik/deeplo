@@ -48,8 +48,13 @@ func runUpdate(cmd *cobra.Command, version string) error {
 			return err
 		}
 	}
+	// The release tag is v-prefixed; the displayed version is the bare number.
+	if !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
+	display := strings.TrimPrefix(version, "v")
 
-	fmt.Fprintf(out, "Updating deeplo to %s...\n", version) //nolint:errcheck
+	fmt.Fprintf(out, "Updating deeplo to %s...\n", display) //nolint:errcheck
 
 	tmpDir, err := os.MkdirTemp("", "deeplo-update-")
 	if err != nil {
@@ -58,7 +63,7 @@ func runUpdate(cmd *cobra.Command, version string) error {
 	defer os.RemoveAll(tmpDir) //nolint:errcheck
 
 	binPath := filepath.Join(tmpDir, "deeplo")
-	if err := fetchBinary(version, binPath); err != nil {
+	if err := fetchBinary(out, version, binPath); err != nil {
 		return err
 	}
 
@@ -86,7 +91,7 @@ func runUpdate(cmd *cobra.Command, version string) error {
 		fmt.Fprintf(out, "✓ Restarted %s\n", nativeUnitName) //nolint:errcheck
 	}
 
-	fmt.Fprintf(out, "\ndeeplo updated to %s\n", version) //nolint:errcheck
+	fmt.Fprintf(out, "\ndeeplo updated to %s\n", display) //nolint:errcheck
 	return nil
 }
 
@@ -111,13 +116,13 @@ var fetchLatestVersion = func() (string, error) {
 	return "", fmt.Errorf("could not parse latest version from GitHub API response")
 }
 
-var fetchBinary = func(version, dst string) error {
+var fetchBinary = func(out io.Writer, version, dst string) error {
 	arch, err := detectArch()
 	if err != nil {
 		return err
 	}
 	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/deeplo_linux_%s", githubRepo, version, arch)
-	fmt.Printf("Downloading deeplo %s (linux/%s)...\n", version, arch)
+	fmt.Fprintf(out, "Downloading deeplo %s (linux/%s)...\n", strings.TrimPrefix(version, "v"), arch) //nolint:errcheck
 
 	resp, err := http.Get(url) //nolint:noctx
 	if err != nil {

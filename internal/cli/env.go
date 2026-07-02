@@ -56,8 +56,8 @@ sudoedit handles privilege escalation while respecting $SUDO_EDITOR / $EDITOR.`,
 			if err := runSudoEdit(nativeEnvFile); err != nil {
 				return fmt.Errorf("sudoedit exited with error: %w", err)
 			}
-			fmt.Fprintf(out, "Edited %s\n\n", nativeEnvFile)                        //nolint:errcheck
-			fmt.Fprintln(out, "Run 'deeplo service restart' to apply env changes.") //nolint:errcheck
+			fmt.Fprintf(out, "Edited %s\n", nativeEnvFile)                                                   //nolint:errcheck
+			fmt.Fprintln(out, "Run 'deeplo env check' to validate, then 'deeplo service restart' to apply.") //nolint:errcheck
 			return nil
 		},
 	}
@@ -67,9 +67,8 @@ func newEnvCheckCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
 		Short: "Validate the env file and referenced key/secret files",
-		Long: `check parses the deeplo env file, validates the DEEPLO_* settings the
-same way the daemon does at startup. It does not require the daemon
-to be running.`,
+		Long: `Parse the deeplo env file and validate the DEEPLO_* settings the same
+way the daemon does at startup. It does not require the daemon to be running.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if err := requireNative(); err != nil {
 				return err
@@ -120,7 +119,7 @@ func runEnvCheck(cmd *cobra.Command, path string) error {
 	}
 
 	if problems > 0 {
-		fmt.Fprintf(out, "Env INVALID: %d problem(s) in %s\n", problems, path) //nolint:errcheck
+		fmt.Fprintf(out, "Env INVALID: %d error(s) in %s\n", problems, path) //nolint:errcheck
 		return fmt.Errorf("env validation failed")
 	}
 	fmt.Fprintf(out, "Env OK: %s\n", path) //nolint:errcheck

@@ -98,14 +98,13 @@ func runUninstall(cmd *cobra.Command, purge bool) error {
 			fmt.Fprintln(out, "✓ Removed system user and group deeplo") //nolint:errcheck
 		}
 		_ = removeSystemGroup("deeplo")
-		fmt.Fprintln(out, "\ndeeplo fully purged.")                                                    //nolint:errcheck
-		fmt.Fprintln(out, "\nNote: deployed apps and the authorized deploy key on your target")        //nolint:errcheck
-		fmt.Fprintln(out, "hosts are not touched by uninstall - remove those on each host if needed.") //nolint:errcheck
+		fmt.Fprintln(out, "\ndeeplo fully purged.")                                                   //nolint:errcheck
+		fmt.Fprintln(out, "\nNote: deployed apps and the authorized deploy key on your target")       //nolint:errcheck
+		fmt.Fprintln(out, "hosts are not touched by uninstall. Remove those on each host if needed.") //nolint:errcheck
 	} else {
-		fmt.Fprintln(out, "\ndeeplo uninstalled. Config and data preserved:")                   //nolint:errcheck
-		fmt.Fprintln(out, "/etc/deeplo  /var/lib/deeplo")                                       //nolint:errcheck
-		fmt.Fprintln(out, "\nRemove these later with: sudo rm -rf /etc/deeplo /var/lib/deeplo") //nolint:errcheck
-		fmt.Fprintln(out, "(the deeplo system user and group also remain)")                     //nolint:errcheck
+		fmt.Fprintln(out, "\ndeeplo uninstalled. Config, data, and the deeplo user remain.") //nolint:errcheck
+		fmt.Fprintln(out, "\nRemove config and data with:")                                  //nolint:errcheck
+		fmt.Fprintln(out, "  sudo rm -rf /etc/deeplo /var/lib/deeplo")                       //nolint:errcheck
 	}
 	return nil
 }

@@ -17,7 +17,7 @@ func CompletionCmd() *cobra.Command {
 		Long: `Generate a shell completion script for bash, zsh, or fish.
 
 The install script sets these up automatically.
-Use these for manual for manual setup.`,
+Use these for manual setup.`,
 	}
 	cmd.AddCommand(
 		newCompletionSubCmd("bash",
@@ -77,7 +77,7 @@ func refreshCompletions(out io.Writer, binPath string) {
 		refreshed = append(refreshed, completion.shell)
 	}
 	if len(refreshed) > 0 {
-		fmt.Fprintf(out, "  ✓ Refreshed shell completions (%s)\n", strings.Join(refreshed, " ")) //nolint:errcheck
+		fmt.Fprintf(out, "✓ Refreshed shell completions (%s)\n", strings.Join(refreshed, " ")) //nolint:errcheck
 	}
 }
 

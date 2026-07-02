@@ -21,7 +21,7 @@ var (
 	nativeEnvFile  = "/etc/deeplo/deeplo.env"
 )
 
-var errNotNative = fmt.Errorf("this command is not available in Docker or other non-systemd environments")
+var errNotNative = fmt.Errorf("this command requires a native install (systemd)")
 
 // Checks whether systemd appears to be the active init system on this host.
 var checkNativeInstall = func() error {

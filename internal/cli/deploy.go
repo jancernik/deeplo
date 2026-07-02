@@ -13,7 +13,7 @@ func DeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy <project>",
 		Short: "Force a deploy of a project at its current HEAD commit",
-		Long: `deploy queues an immediate deploy for a project.
+		Long: `Queue an immediate deploy for a project.
 
 The deploy runs asynchronously in the daemon.
 Use 'deeplo deploys history' to monitor progress.

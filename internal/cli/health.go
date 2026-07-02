@@ -14,7 +14,7 @@ func HealthCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "health",
 		Short: "Show deeplo service health",
-		Long:  `health shows the health of the deeplo service.`,
+		Long:  `Show whether the deeplo service is running and the daemon is reachable.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if checkNativeInstall() == nil {
 				return healthNative(cmd)
@@ -72,10 +72,8 @@ func healthSocket(cmd *cobra.Command) error {
 	version, uptime, ok := healthPingDaemon(cmd.Context())
 	if !ok {
 		errOut := cmd.ErrOrStderr()
-		fmt.Fprintf(errOut, "deeplo daemon is not reachable.\n")  //nolint:errcheck
-		fmt.Fprintf(errOut, "Socket:  %s\n\n", adminSocket())     //nolint:errcheck
-		fmt.Fprintf(errOut, "Is the deeplo container running?\n") //nolint:errcheck
-		fmt.Fprintf(errOut, "Check with: docker ps\n")            //nolint:errcheck
+		fmt.Fprintf(errOut, "deeplo daemon is not reachable.\n") //nolint:errcheck
+		fmt.Fprintf(errOut, "Socket:   %s\n", adminSocket())     //nolint:errcheck
 		return errSilentExit
 	}
 	fmt.Fprintf(out, "Daemon:   reachable\n")   //nolint:errcheck

@@ -42,7 +42,7 @@ func loadAndReportConfig(cmd *cobra.Command, configFile string) (*config.Config,
 	summary := fmt.Sprintf("Config OK: %s (%d host(s), %d repo(s), %d project(s))",
 		configFile, len(deployConfig.Hosts), len(deployConfig.Repos), len(deployConfig.Projects))
 	if len(warnings) > 0 {
-		summary += fmt.Sprintf(" - %d warning(s)", len(warnings))
+		summary += fmt.Sprintf(", %d warning(s)", len(warnings))
 	}
 	fmt.Fprintln(out, summary) //nolint:errcheck
 	return deployConfig, nil
@@ -66,8 +66,8 @@ func newConfigReloadCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "reload",
 		Short: "Ask the daemon to reload its config",
-		Long: `reload instructs the running daemon to re-read its managed config from
-disk or its configured git repository and apply any changes immediately.`,
+		Long: `Instruct the running daemon to re-read its managed config from disk or
+its configured git repository and apply any changes immediately.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resp, err := daemonClient().Reload(cmd.Context())
 			if err != nil {
@@ -83,7 +83,7 @@ func newConfigCheckCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "check",
 		Short: "Validate the config file and report any issues",
-		Long: `check validates the managed config file and reports errors and warnings.
+		Long: `Validate the managed config file and report errors and warnings.
 It does not require the daemon to be running.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			_, err := loadAndReportConfig(cmd, bootstrap.LoadEnv().ConfigFile)
@@ -133,12 +133,8 @@ receives an editable copy.`,
 			if editErr != nil {
 				return fmt.Errorf("editor exited with error: %w", editErr)
 			}
-			fmt.Fprintf(out, "Edited %s\n", path)                                                     //nolint:errcheck
-			fmt.Fprintln(out)                                                                         //nolint:errcheck
-			fmt.Fprintln(out, "Next steps:")                                                          //nolint:errcheck
-			fmt.Fprintln(out, "  deeplo config check    validate your changes")                       //nolint:errcheck
-			fmt.Fprintln(out, "  deeplo config reload   apply changes without restarting the daemon") //nolint:errcheck
-			fmt.Fprintln(out, "  deeplo service restart   or restart the service if needed")          //nolint:errcheck
+			fmt.Fprintf(out, "Edited %s\n", path)                                                             //nolint:errcheck
+			fmt.Fprintln(out, "Run 'deeplo config check' to validate, then 'deeplo config reload' to apply.") //nolint:errcheck
 			return nil
 		},
 	}

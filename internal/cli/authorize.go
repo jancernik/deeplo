@@ -17,7 +17,7 @@ func AuthorizeCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "authorize [host...]",
 		Short: "Install the deploy public key on target hosts",
-		Long: `authorize installs deeplo's deploy public key into the authorized_keys of
+		Long: `Install deeplo's deploy public key into the authorized_keys of
 each target host, so the daemon can connect over SSH without a password.
 
 It resolves the public key, SSH user, and port from your bootstrap settings and
@@ -69,11 +69,11 @@ func runAuthorize(cmd *cobra.Command, hostNames []string) error {
 		fmt.Fprintf(out, "Authorizing %s (%s)...\n", host.Name, target) //nolint:errcheck
 
 		if err := installAuthorizedKey(publicKey, port, target); err != nil {
-			fmt.Fprintf(out, "authorize failed for %s: %v\n", host.Name, err) //nolint:errcheck
+			fmt.Fprintf(out, "Failed to authorize %s: %v\n", host.Name, err) //nolint:errcheck
 			failed++
 			continue
 		}
-		fmt.Fprintf(out, "✓ authorized %s\n", host.Name) //nolint:errcheck
+		fmt.Fprintf(out, "✓ Authorized %s\n", host.Name) //nolint:errcheck
 	}
 
 	if failed > 0 {

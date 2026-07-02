@@ -27,7 +27,7 @@ func newDeploysStateCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "state",
 		Short: "Show the latest recorded deployment per project and host",
-		Long:  `state shows the latest recorded deployment state per project-host pair.`,
+		Long:  `Show the latest recorded deployment state per project-host pair.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resp, err := daemonClient().Deployments(cmd.Context())
 			if err != nil {
@@ -42,7 +42,7 @@ func newDeploysContainersCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "containers",
 		Short: "SSH into each host and show observed container state",
-		Long: `containers asks the daemon to SSH into every configured host and run
+		Long: `Ask the daemon to SSH into every configured host and run
 'docker compose ps', printing the observed runtime state.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runDeploysContainers(cmd)

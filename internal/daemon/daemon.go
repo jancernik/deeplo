@@ -317,7 +317,7 @@ func newRunLogServer(env *bootstrap.Config, logsDir string, mux *http.ServeMux) 
 
 func warnIncompleteConfig(logger *slog.Logger, deployConfig *config.Config) {
 	for _, issue := range deployConfig.BlockingIssues() {
-		logger.Warn("incomplete config: daemon running but cannot deploy until fixed",
+		logger.Warn("config incomplete, daemon running but cannot deploy until fixed",
 			"field", issue.Field, "reason", issue.Message)
 	}
 }

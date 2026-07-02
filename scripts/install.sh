@@ -125,11 +125,15 @@ latest_version() {
 download_binary() {
 	version="$1"
 	arch="$2"
+	case "$version" in
+	v*) ;;
+	*) version="v${version}" ;;
+	esac
 	base_url="https://github.com/${GITHUB_REPO}/releases/download/${version}"
 	tmp_dir=$(mktemp -d)
 	_CLEANUP_DIRS="$_CLEANUP_DIRS $tmp_dir"
 
-	info "Downloading deeplo ${version} (linux/${arch})..."
+	info "Downloading deeplo ${version#v} (linux/${arch})..."
 	url="${base_url}/deeplo_linux_${arch}"
 	curl -fsSL --progress-bar -o "${tmp_dir}/deeplo" "$url" ||
 		die "Failed to download ${url}"
@@ -252,7 +256,7 @@ do_install() {
 		bin_dir=$(download_binary "$VERSION" "$arch")
 	fi
 
-	info "Installing deeplo ${VERSION}..."
+	info "Installing deeplo ${VERSION#v}..."
 
 	require_systemd
 	require_sudo
@@ -347,7 +351,7 @@ YAMLEOF
 
 	run_root systemctl daemon-reload
 
-	printf '\n\033[1;32m✓ deeplo %s installed\033[0m\n\n' "$VERSION"
+	printf '\n\033[1;32m✓ deeplo %s installed\033[0m\n\n' "${VERSION#v}"
 
 	# A running service keeps the old binary in memory: 'install' swaps the file
 	# on disk but never restarts the daemon. Tell the operator to restart instead
@@ -357,7 +361,7 @@ YAMLEOF
 The deeplo service is already running an earlier build; the new binary won't
 take effect until you restart it:
 
-    deeplo service restart
+  deeplo service restart
 
 Docs: https://deeplo.xyz
 EOF
@@ -378,11 +382,28 @@ EOF
 
 # main
 
+usage() {
+	cat <<EOF
+Usage:
+  install.sh                      Install the latest release
+  install.sh --build              Build from local source (requires Go toolchain)
+  install.sh --version v1.2.3     Install a specific release
+
+To update or remove an existing install, use the deeplo CLI:
+  deeplo update [--version v1.2.3]
+  deeplo uninstall [--purge]
+EOF
+}
+
 BUILD_LOCAL=false
 VERSION="${DEEPLO_VERSION:-}"
 
 while [ $# -gt 0 ]; do
 	case "$1" in
+	-h | --help)
+		usage
+		exit 0
+		;;
 	--build)
 		BUILD_LOCAL=true
 		shift
@@ -397,19 +418,14 @@ while [ $# -gt 0 ]; do
 		shift
 		;;
 	--*)
-		die "Unknown option: $1"
+		die "Unknown option: $1
+
+$(usage)"
 		;;
 	*)
 		die "Unexpected argument: '$1'
 
-Usage:
-  install.sh                      Install the latest release
-  install.sh --build              Build from local source (requires Go toolchain)
-  install.sh --version v1.2.3     Install a specific release
-
-To update or remove an existing install, use the deeplo CLI:
-  deeplo update [--version v1.2.3]
-  deeplo uninstall [--purge]"
+$(usage)"
 		;;
 	esac
 done

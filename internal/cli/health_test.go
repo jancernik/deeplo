@@ -138,8 +138,8 @@ func TestHealthDockerDaemonReachable(t *testing.T) {
 	}
 }
 
-// TestHealthDockerDaemonUnreachable verifies that the Docker path exits non-zero
-// and writes a helpful message to stderr.
+// TestHealthDockerDaemonUnreachable verifies that the non-native path exits
+// non-zero and writes a helpful message to stderr.
 func TestHealthDockerDaemonUnreachable(t *testing.T) {
 	overrideNative(t, errors.New("not native"))
 	overrideHealthPingDaemon(t, "", "", false)
@@ -151,8 +151,8 @@ func TestHealthDockerDaemonUnreachable(t *testing.T) {
 	if !strings.Contains(stderr, "not reachable") {
 		t.Errorf("health: expected 'not reachable' on stderr, got:\n%s", stderr)
 	}
-	if !strings.Contains(stderr, "docker ps") {
-		t.Errorf("health: expected 'docker ps' hint on stderr, got:\n%s", stderr)
+	if !strings.Contains(stderr, "Socket:") {
+		t.Errorf("health: expected the socket path on stderr, got:\n%s", stderr)
 	}
 }
 

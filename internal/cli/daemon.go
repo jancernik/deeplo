@@ -9,7 +9,7 @@ func NewDaemonCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "daemon",
 		Short: "Run the deployment daemon",
-		Long: `daemon starts the deeplo deployment daemon.
+		Long: `Start the deeplo deployment daemon.
 
 The daemon is configured via DEEPLO_* environment variables.
 In a native install it is managed by systemd (deeplo.service).

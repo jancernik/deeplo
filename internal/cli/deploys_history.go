@@ -16,7 +16,7 @@ func newDeploysHistoryCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "history",
 		Short: "List recent deploy runs",
-		Long:  `history lists recent deploy runs.`,
+		Long:  `List recent deploy runs.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			resp, err := daemonClient().Runs(cmd.Context(), project, host, limit)
 			if err != nil {

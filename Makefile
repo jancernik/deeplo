@@ -1,5 +1,5 @@
 BIN     := bin/deeplo
-VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null || echo "dev")
+VERSION := $(shell (git describe --tags --abbrev=0 2>/dev/null || echo "dev") | sed 's/^v//')
 LDFLAGS := -s -w -X github.com/jancernik/deeplo/internal/build.Version=$(VERSION)
 
 PLATFORMS := linux/amd64 linux/arm64

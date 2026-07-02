@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,7 +51,7 @@ func TestUpdateVersionFlag(t *testing.T) {
 	origFetch := fetchBinary
 	t.Cleanup(func() { fetchBinary = origFetch })
 	var fetchedVersion string
-	fetchBinary = func(version, dst string) error {
+	fetchBinary = func(_ io.Writer, version, dst string) error {
 		fetchedVersion = version
 		// Return an error to abort early - we only care that version was passed correctly.
 		return errors.New("stop here")
@@ -74,7 +75,7 @@ func TestUpdateRefreshesCompletions(t *testing.T) {
 
 	origFetch := fetchBinary
 	t.Cleanup(func() { fetchBinary = origFetch })
-	fetchBinary = func(string, string) error { return nil }
+	fetchBinary = func(io.Writer, string, string) error { return nil }
 
 	origInstall := installBinaryTo
 	t.Cleanup(func() { installBinaryTo = origInstall })
