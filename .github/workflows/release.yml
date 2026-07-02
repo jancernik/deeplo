@@ -71,5 +71,6 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
+          build-args: VERSION=${{ steps.metadata.outputs.version }}
           tags: ${{ steps.metadata.outputs.tags }}
           labels: ${{ steps.metadata.outputs.labels }}
