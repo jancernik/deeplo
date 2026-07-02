@@ -88,7 +88,7 @@ deeplo authorize          # all configured hosts, prompts for each host's passwo
 
 This authorizes the daemon to SSH into each configured host with its configured user and port.
 
-To do manually, append the contents of `/etc/deeplo/keys/deploy_key.pub` to `~/.ssh/authorized_keys` for the deploy user on each target.
+To do it manually, append the contents of `/etc/deeplo/keys/deploy_key.pub` to `~/.ssh/authorized_keys` for the deploy user on each target.
 
 The daemon uses the same key to fetch your repos over SSH. For private repos, grant that key read access. On GitHub, for example, you can add `deploy_key.pub` as a read-only [deploy key](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/managing-deploy-keys#deploy-keys).
 
