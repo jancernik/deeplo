@@ -6,15 +6,17 @@
 
 **A small, agentless deployment tool for Docker Compose over SSH.**
 
-[Documentation](https://deeplo.xyz) · [Native install](https://deeplo.xyz/guides/native-install) · [Docker image](https://deeplo.xyz/guides/docker-image) · [CLI reference](https://deeplo.xyz/reference/cli-reference)
+[![Release](https://img.shields.io/github/v/release/jancernik/deeplo)](https://github.com/jancernik/deeplo/releases)
+[![CI](https://img.shields.io/github/actions/workflow/status/jancernik/deeplo/ci.yml?logo=github&label=CI)](https://github.com/jancernik/deeplo/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 </div>
 
 ---
 
-A small deploy runner for Docker Compose projects on remote hosts. One binary runs as the daemon and CLI, watches git repos for new commits, works out which projects changed, then runs Docker Compose on each target over SSH.
+A daemon watches your Git repositories and deploys Docker Compose projects to remote hosts over SSH. It maps repo paths to deployable projects, ships as one small binary, and does not install anything on the target hosts.
 
-There are no agents on target host and your deployment setup is defined in on config file: hosts, repos, projects, and the paths that should trigger each deploy.
+Hosts, repos, and projects live in one config file:
 
 ```yaml
 hosts:
@@ -34,8 +36,24 @@ projects:
     repo_subdir: deploy
     targets:
       - web-1
-    watch_paths:
-      - deploy/**
     persist_files:
       - .env
 ```
+
+When a commit lands on a watched branch, deeplo detects it by webhook, polling, or both. It works out which projects changed, reads their Compose files from that exact commit, and updates each stack on its configured hosts.
+
+## Getting started
+
+- [Native install](https://deeplo.xyz/guides/native-install): run the daemon under systemd.
+- [Docker image](https://deeplo.xyz/guides/docker-image): run the daemon as a container.
+
+Full documentation is at [deeplo.xyz](https://deeplo.xyz).
+
+## Highlights
+
+- **Agentless**: targets need only Docker, Compose, and SSH access.
+- **One small binary**: daemon and operator CLI in the same executable.
+- **Push or poll**: webhook, poll, or hybrid triggers per repo.
+- **Path-aware**: only deploys the projects whose files changed, monorepo friendly.
+- **Traceable**: deployment state, history, and logs from the CLI.
+- **Reporting**: GitHub deployment and commit statuses.
