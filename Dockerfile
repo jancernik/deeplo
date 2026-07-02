@@ -20,13 +20,16 @@ FROM alpine:3
 
 ENV DEEPLO_DATA_DIR=/var/lib/deeplo
 
-RUN apk add --no-cache git openssh-client ca-certificates && \
+RUN apk add --no-cache git openssh-client ca-certificates bash bash-completion && \
+    rm -rf /usr/share/bash-completion/completions/* && \
     addgroup -g 1000 -S deeplo && \
     adduser  -u 1000 -S -G deeplo deeplo && \
     mkdir -p /var/lib/deeplo /run/deeplo && \
     chown deeplo:deeplo /var/lib/deeplo /run/deeplo
 
 COPY --from=builder /out/deeplo /usr/local/bin/deeplo
+
+RUN /usr/local/bin/deeplo completion bash > /etc/bash/deeplo.sh
 
 USER deeplo
 
