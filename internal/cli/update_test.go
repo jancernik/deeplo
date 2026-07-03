@@ -116,3 +116,53 @@ func TestUpdateRefreshesCompletions(t *testing.T) {
 		t.Errorf("update output missing completion refresh line, got: %q", out.String())
 	}
 }
+
+// TestParseLatestRelease verifies the GitHub release response parser against
+// compact single-line JSON (the live API format), pretty-printed JSON, and
+// responses without a tag.
+func TestParseLatestRelease(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "compact single-line JSON with url field first",
+			body: `{"url":"https://api.github.com/repos/jancernik/deeplo/releases/348344382","tag_name":"v0.1.0","name":"v0.1.0"}`,
+			want: "v0.1.0",
+		},
+		{
+			name: "pretty-printed JSON",
+			body: "{\n  \"url\": \"https://api.github.com/repos/jancernik/deeplo/releases/1\",\n  \"tag_name\": \"v1.2.3\"\n}",
+			want: "v1.2.3",
+		},
+		{
+			name:    "missing tag_name",
+			body:    `{"message":"Not Found"}`,
+			wantErr: true,
+		},
+		{
+			name:    "not JSON",
+			body:    "<html>rate limited</html>",
+			wantErr: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseLatestRelease(strings.NewReader(tc.body))
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("expected an error, got tag %q", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("tag = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

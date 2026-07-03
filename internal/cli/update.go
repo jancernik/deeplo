@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -101,19 +102,23 @@ var fetchLatestVersion = func() (string, error) {
 		return "", fmt.Errorf("fetch latest version: %w", err)
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read GitHub response: %w", err)
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("fetch latest version: GitHub API returned HTTP %d", resp.StatusCode)
 	}
-	for _, line := range strings.Split(string(body), "\n") {
-		if strings.Contains(line, `"tag_name"`) {
-			parts := strings.SplitN(line, `"`, 5)
-			if len(parts) >= 5 {
-				return parts[3], nil
-			}
-		}
+	return parseLatestRelease(resp.Body)
+}
+
+func parseLatestRelease(body io.Reader) (string, error) {
+	var release struct {
+		TagName string `json:"tag_name"`
 	}
-	return "", fmt.Errorf("could not parse latest version from GitHub API response")
+	if err := json.NewDecoder(body).Decode(&release); err != nil {
+		return "", fmt.Errorf("parse GitHub API response: %w", err)
+	}
+	if release.TagName == "" {
+		return "", fmt.Errorf("could not parse latest version from GitHub API response")
+	}
+	return release.TagName, nil
 }
 
 var fetchBinary = func(out io.Writer, version, dst string) error {
