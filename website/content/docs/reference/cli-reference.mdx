@@ -217,8 +217,9 @@ deeplo update [flags]
 | Flag        | Default | Description                                       |
 | ----------- | ------- | ------------------------------------------------- |
 | `--version` | -       | Version to install. Defaults to the latest release |
+| `--force`   | `false` | Reinstall even if already up to date               |
 
-If the daemon was running before the update, the command restarts it after installing the new binary.
+If the target version is already installed, the command is a no-op unless `--force` is set. If the daemon was running before the update, the command restarts it after installing the new binary.
 
 ## Shell completion
 

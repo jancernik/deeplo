@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
+
+	"github.com/jancernik/deeplo/internal/build"
 )
 
 // TestUpdateRequiresNative verifies that "deeplo update" fails on non-native installs.
@@ -164,5 +166,48 @@ func TestParseLatestRelease(t *testing.T) {
 				t.Errorf("tag = %q, want %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestUpdateSkipsWhenAlreadyInstalled verifies that update is a no-op when the
+// target version matches the running binary, and that --force overrides it.
+func TestUpdateSkipsWhenAlreadyInstalled(t *testing.T) {
+	overrideNative(t, nil)
+	withAdminSocket(t, "/nonexistent.sock")
+
+	origVersion := build.Version
+	t.Cleanup(func() { build.Version = origVersion })
+	build.Version = "1.2.3"
+
+	origFetch := fetchBinary
+	t.Cleanup(func() { fetchBinary = origFetch })
+	var fetched bool
+	fetchBinary = func(io.Writer, string, string) error {
+		fetched = true
+		return errors.New("stop here")
+	}
+
+	var out strings.Builder
+	root := &cobra.Command{Use: "deeplo", SilenceUsage: true, SilenceErrors: true}
+	root.SetOut(&out)
+	root.AddCommand(UpdateCmd())
+	root.SetArgs([]string{"update", "--version", "v1.2.3"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("update on current version: expected clean exit, got: %v", err)
+	}
+	if fetched {
+		t.Error("update on current version: fetchBinary should not be called")
+	}
+	if !strings.Contains(out.String(), "already installed") {
+		t.Errorf("expected the already-installed notice, got: %q", out.String())
+	}
+
+	// --force proceeds to the download.
+	root = &cobra.Command{Use: "deeplo", SilenceUsage: true, SilenceErrors: true}
+	root.AddCommand(UpdateCmd())
+	root.SetArgs([]string{"update", "--version", "v1.2.3", "--force"})
+	_ = root.Execute()
+	if !fetched {
+		t.Error("update --force: fetchBinary should be called")
 	}
 }

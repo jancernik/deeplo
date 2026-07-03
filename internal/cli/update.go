@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/jancernik/deeplo/internal/build"
 )
 
 const (
@@ -21,6 +23,7 @@ const (
 
 func UpdateCmd() *cobra.Command {
 	var version string
+	var force bool
 
 	cmd := &cobra.Command{
 		Use:   "update",
@@ -29,14 +32,15 @@ func UpdateCmd() *cobra.Command {
 			if err := requireNative(); err != nil {
 				return err
 			}
-			return runUpdate(cmd, version)
+			return runUpdate(cmd, version, force)
 		},
 	}
 	cmd.Flags().StringVar(&version, "version", "", "version to install (default: latest)")
+	cmd.Flags().BoolVar(&force, "force", false, "reinstall even if already up to date")
 	return cmd
 }
 
-func runUpdate(cmd *cobra.Command, version string) error {
+func runUpdate(cmd *cobra.Command, version string, force bool) error {
 	out := cmd.OutOrStdout()
 
 	wasRunning := daemonReachable(adminSocket())
@@ -54,6 +58,11 @@ func runUpdate(cmd *cobra.Command, version string) error {
 		version = "v" + version
 	}
 	display := strings.TrimPrefix(version, "v")
+
+	if !force && display == build.Version {
+		fmt.Fprintf(out, "deeplo %s is already installed. Run 'deeplo update --force' to reinstall.\n", display) //nolint:errcheck
+		return nil
+	}
 
 	fmt.Fprintf(out, "Updating deeplo to %s...\n", display) //nolint:errcheck
 

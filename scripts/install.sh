@@ -115,6 +115,11 @@ require_sudo() {
 
 # helpers
 
+installed_version() {
+	command -v deeplo >/dev/null 2>&1 || return 0
+	deeplo version 2>/dev/null | awk '{print $2}'
+}
+
 latest_version() {
 	version=$(curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
 		grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
@@ -253,6 +258,10 @@ do_install() {
 		bin_dir=$(build_from_source "$VERSION")
 	else
 		[ -z "$VERSION" ] && VERSION=$(latest_version)
+		if [ "$FORCE" != "true" ] && [ "$(installed_version)" = "${VERSION#v}" ]; then
+			info "deeplo ${VERSION#v} is already installed. Re-run with --force to reinstall."
+			exit 0
+		fi
 		bin_dir=$(download_binary "$VERSION" "$arch")
 	fi
 
@@ -388,6 +397,7 @@ Usage:
   install.sh                      Install the latest release
   install.sh --build              Build from local source (requires Go toolchain)
   install.sh --version v1.2.3     Install a specific release
+  install.sh --force              Reinstall even if already up to date
 
 To update or remove an existing install, use the deeplo CLI:
   deeplo update [--version v1.2.3]
@@ -396,6 +406,7 @@ EOF
 }
 
 BUILD_LOCAL=false
+FORCE=false
 VERSION="${DEEPLO_VERSION:-}"
 
 while [ $# -gt 0 ]; do
@@ -406,6 +417,10 @@ while [ $# -gt 0 ]; do
 		;;
 	--build)
 		BUILD_LOCAL=true
+		shift
+		;;
+	--force)
+		FORCE=true
 		shift
 		;;
 	--version)
