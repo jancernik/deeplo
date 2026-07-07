@@ -143,6 +143,10 @@ func (app *App) Run(ctx context.Context) error {
 		return resolveMirrorHead(repoURL, branch, app.env.DataPath, app.env.Source, sshEnv, app.logger)
 	}
 
+	findMirror := func(repoURL string) engine.MirrorDiffer {
+		return resolveMirror(repoURL, app.env.DataPath, app.env.Source, sshEnv, app.logger)
+	}
+
 	// opsCtx scopes all deploy and teardown work
 	// intakeCtx scopes the reconcile loop worker and the local config file watcher
 	opsCtx, opsCancel := context.WithCancel(ctx)
@@ -193,7 +197,7 @@ func (app *App) Run(ctx context.Context) error {
 	app.reconcileLoop.Start(intakeCtx)
 	app.reconcileLoop.Trigger()
 
-	engine.ResumeIncompleteDeploys(opsCtx, configResult.Config, app.store, getMirrorHead, app.deployHandler, app.logger)
+	engine.ResumeIncompleteDeploys(opsCtx, configResult.Config, app.store, getMirrorHead, findMirror, app.deployHandler, app.logger)
 
 	app.watcher = &managedWatcher{}
 	app.watcher.start(buildWatcher(configResult.Config, app.env, app.reloader, app.deployHandler, app.store, sshEnv, app.logger), opsCtx)
@@ -469,6 +473,20 @@ func resolveMirrorHead(repoURL, branch, dataPath string, source bootstrap.Source
 		}
 	}
 	return "", false
+}
+
+// Returns the best available local mirror for repoURL, following the same lookup
+// order as resolveMirrorHead.
+func resolveMirror(repoURL, dataPath string, source bootstrap.Source, sshEnv []string, logger *slog.Logger) engine.MirrorDiffer {
+	if source == bootstrap.SourceGit {
+		if configRepo, _ := mirror.Find(repoURL, filepath.Join(dataPath, "config"), sshEnv, logger); configRepo != nil {
+			return configRepo
+		}
+	}
+	if deployRepo, _ := mirror.Find(repoURL, dataPath, sshEnv, logger); deployRepo != nil {
+		return deployRepo
+	}
+	return nil
 }
 
 // Wraps handler so that when an event targets the config repo, reload is called

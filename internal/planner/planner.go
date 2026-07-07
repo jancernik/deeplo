@@ -94,6 +94,16 @@ func Plan(deployConfig *config.Config, event RepoEvent) []DeployTarget {
 	return targets
 }
 
+// Reports whether changedFiles touch project's watched paths, applying the same
+// RepoSubdir default as Plan.
+func ProjectMatchesChangedFiles(project config.Project, changedFiles []string) bool {
+	watchPaths := project.WatchPaths
+	if len(watchPaths) == 0 && project.RepoSubdir != "" {
+		watchPaths = []string{project.RepoSubdir + "/**"}
+	}
+	return filesMatchProject(watchPaths, changedFiles)
+}
+
 func filesMatchProject(watchPaths, changedFiles []string) bool {
 	if len(watchPaths) == 0 {
 		return true
