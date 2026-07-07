@@ -147,6 +147,19 @@ func (app *App) Run(ctx context.Context) error {
 		return resolveMirror(repoURL, app.env.DataPath, app.env.Source, sshEnv, app.logger)
 	}
 
+	// Reloads the deploy config when an event targets the config repo.
+	//  Returns an error when the config can't be loaded, used to defer the deploy.
+	configRepoFullName := ""
+	if app.env.Source == bootstrap.SourceGit {
+		configRepoFullName = engine.RepoFullName(app.env.ConfigRepoURL)
+	}
+	reloadConfigRepo := func(ctx context.Context, repoName string) error {
+		if isConfigRepo(repoName, configRepoFullName, getConfig().Repos) {
+			return app.reloader.Reload(ctx)
+		}
+		return nil
+	}
+
 	// opsCtx scopes all deploy and teardown work
 	// intakeCtx scopes the reconcile loop worker and the local config file watcher
 	opsCtx, opsCancel := context.WithCancel(ctx)
@@ -163,20 +176,14 @@ func (app *App) Run(ctx context.Context) error {
 	}
 
 	onConfigReload := func(_, newConfig *config.Config) {
-		app.watcher.restart(opsCtx, buildWatcher(newConfig, app.env, app.reloader, app.deployHandler, app.store, sshEnv, app.logger))
+		app.watcher.restart(opsCtx, buildWatcher(newConfig, app.env, app.reloader, app.deployHandler, reloadConfigRepo, app.store, sshEnv, app.logger))
 		app.logger.Info("watcher restarted with reloaded config")
 		app.reconcileLoop.Trigger()
 	}
 
 	app.reloader = newConfigReloader(app.env, &app.config, onConfigReload, app.logger)
 
-	baseDeployHandler := engine.MakePushHandler(getConfig, app.env, app.runner, dialer, app.store, reporter, sshEnv, app.logger)
-
-	if app.env.Source == bootstrap.SourceGit {
-		app.deployHandler = withConfigRepoReload(baseDeployHandler, engine.RepoFullName(app.env.ConfigRepoURL), getConfig, app.reloader.Reload, app.logger)
-	} else {
-		app.deployHandler = baseDeployHandler
-	}
+	app.deployHandler = engine.MakePushHandler(getConfig, app.env, app.runner, dialer, app.store, reporter, sshEnv, app.logger)
 
 	previousConfig, err := bootstrap.LoadAppliedConfig(app.env.DataPath)
 	if err != nil {
@@ -200,7 +207,7 @@ func (app *App) Run(ctx context.Context) error {
 	engine.ResumeIncompleteDeploys(opsCtx, configResult.Config, app.store, getMirrorHead, findMirror, app.deployHandler, app.logger)
 
 	app.watcher = &managedWatcher{}
-	app.watcher.start(buildWatcher(configResult.Config, app.env, app.reloader, app.deployHandler, app.store, sshEnv, app.logger), opsCtx)
+	app.watcher.start(buildWatcher(configResult.Config, app.env, app.reloader, app.deployHandler, reloadConfigRepo, app.store, sshEnv, app.logger), opsCtx)
 
 	switch {
 	case app.env.Source == bootstrap.SourceGit:
@@ -247,7 +254,7 @@ func (app *App) Run(ctx context.Context) error {
 		fmt.Fprintln(w, "ok") //nolint:errcheck
 	})
 
-	onPush := engine.MakeWebhookPushHandler(getConfig, app.store, app.deployHandler, app.logger)
+	onPush := engine.MakeWebhookPushHandler(getConfig, app.store, app.deployHandler, reloadConfigRepo, app.logger)
 	if err := providers.RegisterWebhooks(mux, app.env, getConfig(), opsCtx, onPush, app.logger); err != nil {
 		return fmt.Errorf("register webhooks: %w", err)
 	}
@@ -387,6 +394,7 @@ func buildWatcher(
 	env *bootstrap.Config,
 	reloader *configReloader,
 	deployHandler func(context.Context, planner.RepoEvent),
+	reloadConfigRepo func(ctx context.Context, repoName string) error,
 	store *state.FileStore,
 	sshEnv []string,
 	logger *slog.Logger,
@@ -395,7 +403,7 @@ func buildWatcher(
 	if env.Source == bootstrap.SourceGit {
 		configMirrorPath = filepath.Join(env.DataPath, "config")
 	}
-	deployPoller := poller.New(deployConfig, env.DataPath, configMirrorPath, store, deployHandler, logger, sshEnv)
+	deployPoller := poller.New(deployConfig, env.DataPath, configMirrorPath, store, deployHandler, reloadConfigRepo, logger, sshEnv)
 	subs := deployPoller.Subscriptions()
 
 	if env.Source == bootstrap.SourceGit && env.ConfigRepoMode != "webhook" {
@@ -489,27 +497,14 @@ func resolveMirror(repoURL, dataPath string, source bootstrap.Source, sshEnv []s
 	return nil
 }
 
-// Wraps handler so that when an event targets the config repo, reload is called
-// synchronously before planning. This ensures that config and deploy file
-// changes committed together are handled with the updated config.
-func withConfigRepoReload(
-	handler func(context.Context, planner.RepoEvent),
-	configRepoFullName string,
-	getConfig func() *config.Config,
-	reload func(context.Context) error,
-	logger *slog.Logger,
-) func(context.Context, planner.RepoEvent) {
-	return func(ctx context.Context, event planner.RepoEvent) {
-		if configRepoFullName != "" {
-			for _, repo := range getConfig().Repos {
-				if repo.Name == event.RepoName && engine.RepoFullName(repo.URL) == configRepoFullName {
-					if err := reload(ctx); err != nil {
-						logger.Warn("config reload failed before planning, using current config", "err", err)
-					}
-					break
-				}
-			}
-		}
-		handler(ctx, event)
+func isConfigRepo(repoName, configRepoFullName string, repos []config.RepoConfig) bool {
+	if configRepoFullName == "" {
+		return false
 	}
+	for _, repo := range repos {
+		if repo.Name == repoName && engine.RepoFullName(repo.URL) == configRepoFullName {
+			return true
+		}
+	}
+	return false
 }

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -29,7 +28,7 @@ func TestWebhookPushHandler_DynamicConfig(t *testing.T) {
 	var dispatchCount int
 	onDeploy := func(_ context.Context, _ planner.RepoEvent) { dispatchCount++ }
 
-	h := engine.MakeWebhookPushHandler(getConfig, nil, onDeploy, slog.Default())
+	h := engine.MakeWebhookPushHandler(getConfig, nil, onDeploy, nil, slog.Default())
 
 	push := webhook.PushEvent{
 		RepoFullName: "owner/myapp",
@@ -83,120 +82,41 @@ func TestManagedWatcher_RestartFromInsideHandlerDoesNotDeadlock(t *testing.T) {
 	}
 }
 
-// withConfigRepoReload
+// isConfigRepo gates the reload hook: only a push to the config repo triggers a
+// reload, and only when the source is git (configRepoFullName non-empty).
+func TestIsConfigRepo(t *testing.T) {
+	repos := []config.RepoConfig{
+		{Name: "config", URL: "git@github.com:org/config.git"},
+		{Name: "app", URL: "git@github.com:org/app.git"},
+	}
+	const configFullName = "org/config"
 
-func minimalConfig(repoName, repoURL string, mode config.TriggerMode) *config.Config {
-	return &config.Config{
-		Hosts: []config.Host{
-			{Name: "h1", Address: "10.0.0.1", DeployDir: "/srv"},
-		},
-		Repos: []config.RepoConfig{
-			{Name: repoName, URL: repoURL, Branch: "main", TriggerMode: mode},
-		},
-		Projects: []config.Project{
-			{Name: "p1", Repo: repoName, Targets: []string{"h1"}},
-		},
+	cases := []struct {
+		name               string
+		repoName           string
+		configRepoFullName string
+		want               bool
+	}{
+		{"config repo matches", "config", configFullName, true},
+		{"deploy repo does not match", "app", configFullName, false},
+		{"unknown repo does not match", "other", configFullName, false},
+		{"non-git source never matches", "config", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isConfigRepo(tc.repoName, tc.configRepoFullName, repos); got != tc.want {
+				t.Errorf("isConfigRepo(%q, %q) = %v, want %v", tc.repoName, tc.configRepoFullName, got, tc.want)
+			}
+		})
 	}
 }
 
-// When an event targets the config repo, reload runs before the inner handler.
-func TestWithConfigRepoReload_ReloadsBeforeHandlerForConfigRepo(t *testing.T) {
-	const configRepoURL = "git@github.com:org/config.git"
-
-	baseConfig := minimalConfig("config", configRepoURL, config.TriggerModeWebhook)
-	updatedConfig := &config.Config{
-		Hosts: baseConfig.Hosts,
-		Repos: baseConfig.Repos,
-		Projects: []config.Project{
-			{Name: "p1", Repo: "config", Targets: []string{"h1"}},
-			{Name: "p2", Repo: "config", Targets: []string{"h1"}},
-		},
-	}
-
-	var currentConfig atomic.Pointer[config.Config]
-	currentConfig.Store(baseConfig)
-
-	var reloadCalls int
-	reload := func(_ context.Context) error {
-		reloadCalls++
-		currentConfig.Store(updatedConfig)
-		return nil
-	}
-
-	var configSeenByHandler *config.Config
-	inner := func(_ context.Context, _ planner.RepoEvent) {
-		configSeenByHandler = currentConfig.Load()
-	}
-
-	handler := withConfigRepoReload(inner, engine.RepoFullName(configRepoURL), currentConfig.Load, reload, slog.Default())
-	handler(context.Background(), planner.RepoEvent{RepoName: "config", Branch: "main", CommitSha: "abc"})
-
-	if reloadCalls != 1 {
-		t.Errorf("reload calls = %d, want 1", reloadCalls)
-	}
-	if configSeenByHandler == nil || len(configSeenByHandler.Projects) != 2 {
-		t.Errorf("inner handler saw %d projects, want 2 (post-reload config)", len(configSeenByHandler.Projects))
-	}
-}
-
-// Pushes to repos other than the config repo do not trigger a reload.
-func TestWithConfigRepoReload_NonConfigRepoNotReloaded(t *testing.T) {
-	deployConfig := minimalConfig("app", "git@github.com:org/app.git", config.TriggerModeWebhook)
-
-	var reloadCalls int
-	reload := func(_ context.Context) error { reloadCalls++; return nil }
-
-	var innerCalled bool
-	inner := func(_ context.Context, _ planner.RepoEvent) { innerCalled = true }
-
-	handler := withConfigRepoReload(inner, engine.RepoFullName("git@github.com:org/config.git"), func() *config.Config { return deployConfig }, reload, slog.Default())
-	handler(context.Background(), planner.RepoEvent{RepoName: "app", Branch: "main", CommitSha: "abc"})
-
-	if reloadCalls != 0 {
-		t.Errorf("reload calls = %d, want 0 for non-config repo", reloadCalls)
-	}
-	if !innerCalled {
-		t.Error("inner handler was not called")
-	}
-}
-
-// A failed reload does not abort the deploy; the inner handler still runs.
-func TestWithConfigRepoReload_ReloadFailureContinuesToHandler(t *testing.T) {
-	const configRepoURL = "git@github.com:org/config.git"
-	deployConfig := minimalConfig("config", configRepoURL, config.TriggerModeWebhook)
-
-	reload := func(_ context.Context) error { return errors.New("git fetch failed") }
-
-	var innerCalled bool
-	inner := func(_ context.Context, _ planner.RepoEvent) { innerCalled = true }
-
-	handler := withConfigRepoReload(inner, engine.RepoFullName(configRepoURL), func() *config.Config { return deployConfig }, reload, slog.Default())
-	handler(context.Background(), planner.RepoEvent{RepoName: "config", Branch: "main", CommitSha: "abc"})
-
-	if !innerCalled {
-		t.Error("inner handler should still run after a failed reload")
-	}
-}
-
-// The event source (webhook vs poll) does not gate the reload.
-func TestWithConfigRepoReload_PollEventAlsoReloads(t *testing.T) {
-	const configRepoURL = "git@github.com:org/config.git"
-	deployConfig := minimalConfig("config", configRepoURL, config.TriggerModeHybrid)
-
-	var reloadCalls int
-	reload := func(_ context.Context) error { reloadCalls++; return nil }
-	inner := func(_ context.Context, _ planner.RepoEvent) {}
-
-	handler := withConfigRepoReload(inner, engine.RepoFullName(configRepoURL), func() *config.Config { return deployConfig }, reload, slog.Default())
-	handler(context.Background(), planner.RepoEvent{
-		Source:    planner.TriggerPoll,
-		RepoName:  "config",
-		Branch:    "main",
-		CommitSha: "abc",
-	})
-
-	if reloadCalls != 1 {
-		t.Errorf("reload calls = %d, want 1 even for poll-triggered config repo event", reloadCalls)
+// A repo whose name matches the config repo but whose URL points elsewhere is not
+// treated as the config repo.
+func TestIsConfigRepo_NameCollisionDifferentURL(t *testing.T) {
+	repos := []config.RepoConfig{{Name: "config", URL: "git@github.com:someone-else/config.git"}}
+	if isConfigRepo("config", "org/config", repos) {
+		t.Error("URL owner mismatch must not count as the config repo")
 	}
 }
 

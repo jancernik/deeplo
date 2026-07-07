@@ -2,6 +2,7 @@ package engine_test
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -89,6 +90,7 @@ func TestWebhookPushHandler_RepoIndexRebuildsOnConfigChange(t *testing.T) {
 	var dispatched int
 	h := engine.MakeWebhookPushHandler(getConfig, nil,
 		func(_ context.Context, _ planner.RepoEvent) { dispatched++ },
+		nil,
 		slog.Default(),
 	)
 
@@ -133,6 +135,7 @@ func TestWebhookPushHandler_RespectsTriggerMode(t *testing.T) {
 				func() *config.Config { return deployConfig },
 				makeTestStore(t),
 				func(_ context.Context, _ planner.RepoEvent) { calls++ },
+				nil,
 				slog.Default(),
 			)
 
@@ -163,6 +166,7 @@ func TestWebhookPushHandler_FirstSeenCommitTreatsDiffAsUnknown(t *testing.T) {
 		func() *config.Config { return deployConfig },
 		store,
 		func(_ context.Context, ev planner.RepoEvent) { got = ev },
+		nil,
 		slog.Default(),
 	)
 
@@ -214,6 +218,7 @@ func TestWebhookPushHandler_KnownRepoKeepsWebhookChangedFiles(t *testing.T) {
 		func() *config.Config { return deployConfig },
 		store,
 		func(_ context.Context, ev planner.RepoEvent) { got = ev },
+		nil,
 		slog.Default(),
 	)
 
@@ -259,6 +264,7 @@ func TestWebhookPushHandler_LastSeenOnlyIsFirstSeen(t *testing.T) {
 		func() *config.Config { return deployConfig },
 		store,
 		func(_ context.Context, ev planner.RepoEvent) { got = ev },
+		nil,
 		slog.Default(),
 	)
 
@@ -288,6 +294,7 @@ func TestWebhookPushHandler_SetsLastDeployedSha(t *testing.T) {
 		func() *config.Config { return deployConfig },
 		store,
 		func(_ context.Context, _ planner.RepoEvent) {},
+		nil,
 		slog.Default(),
 	)
 	h(context.Background(), webhook.PushEvent{
@@ -308,6 +315,127 @@ func TestWebhookPushHandler_SetsLastDeployedSha(t *testing.T) {
 	}
 	if repoState.LastSeenSha != "aabbccdd" {
 		t.Errorf("LastSeenSha = %q, want aabbccdd", repoState.LastSeenSha)
+	}
+}
+
+// A config-repo reload failure defers the push: no deploy is dispatched and
+// LastDeployedSha is not advanced, so a later webhook or poll can retry it.
+func TestWebhookPushHandler_ReloadFailureDefersDeploy(t *testing.T) {
+	deployConfig := &config.Config{
+		Repos: []config.RepoConfig{
+			{Name: "myapp", URL: "git@github.com:owner/myapp.git", Branch: "main", TriggerMode: config.TriggerModeHybrid},
+		},
+	}
+	store := makeTestStore(t)
+
+	dispatched := 0
+	h := engine.MakeWebhookPushHandler(
+		func() *config.Config { return deployConfig },
+		store,
+		func(_ context.Context, _ planner.RepoEvent) { dispatched++ },
+		func(_ context.Context, _ string) error { return errors.New("config unavailable") },
+		slog.Default(),
+	)
+	h(context.Background(), webhook.PushEvent{
+		RepoFullName: "owner/myapp",
+		Branch:       "main",
+		CommitSha:    "aabbccdd",
+	})
+
+	if dispatched != 0 {
+		t.Errorf("dispatched = %d, want 0 (deploy deferred on reload failure)", dispatched)
+	}
+	repoState, err := store.GetRepoState("myapp", "main")
+	if err != nil {
+		t.Fatalf("GetRepoState: %v", err)
+	}
+	if repoState != nil && repoState.LastDeployedSha == "aabbccdd" {
+		t.Error("LastDeployedSha must not advance when the reload fails")
+	}
+}
+
+// A successful reload records the deploy and dispatches as usual.
+func TestWebhookPushHandler_ReloadSuccessDeploys(t *testing.T) {
+	deployConfig := &config.Config{
+		Repos: []config.RepoConfig{
+			{Name: "myapp", URL: "git@github.com:owner/myapp.git", Branch: "main", TriggerMode: config.TriggerModeHybrid},
+		},
+	}
+	store := makeTestStore(t)
+
+	reloadCalls := 0
+	dispatched := 0
+	h := engine.MakeWebhookPushHandler(
+		func() *config.Config { return deployConfig },
+		store,
+		func(_ context.Context, _ planner.RepoEvent) { dispatched++ },
+		func(_ context.Context, _ string) error { reloadCalls++; return nil },
+		slog.Default(),
+	)
+	h(context.Background(), webhook.PushEvent{
+		RepoFullName: "owner/myapp",
+		Branch:       "main",
+		CommitSha:    "aabbccdd",
+	})
+
+	if reloadCalls != 1 {
+		t.Errorf("reloadCalls = %d, want 1", reloadCalls)
+	}
+	if dispatched != 1 {
+		t.Errorf("dispatched = %d, want 1", dispatched)
+	}
+	repoState, err := store.GetRepoState("myapp", "main")
+	if err != nil {
+		t.Fatalf("GetRepoState: %v", err)
+	}
+	if repoState == nil || repoState.LastDeployedSha != "aabbccdd" {
+		t.Error("LastDeployedSha should advance after a successful reload")
+	}
+}
+
+// A commit deferred by a reload failure is deployed on a later delivery once the
+// config recovers, because the first attempt did not mark it handled.
+func TestWebhookPushHandler_DeferredCommitRetriesAfterReloadRecovers(t *testing.T) {
+	deployConfig := &config.Config{
+		Repos: []config.RepoConfig{
+			{Name: "myapp", URL: "git@github.com:owner/myapp.git", Branch: "main", TriggerMode: config.TriggerModeHybrid},
+		},
+	}
+	store := makeTestStore(t)
+
+	reloadOK := false
+	dispatched := 0
+	h := engine.MakeWebhookPushHandler(
+		func() *config.Config { return deployConfig },
+		store,
+		func(_ context.Context, _ planner.RepoEvent) { dispatched++ },
+		func(_ context.Context, _ string) error {
+			if !reloadOK {
+				return errors.New("config unavailable")
+			}
+			return nil
+		},
+		slog.Default(),
+	)
+
+	push := webhook.PushEvent{RepoFullName: "owner/myapp", Branch: "main", CommitSha: "aabbccdd"}
+
+	h(context.Background(), push) // reload broken: deferred
+	if dispatched != 0 {
+		t.Fatalf("dispatched = %d during outage, want 0", dispatched)
+	}
+
+	reloadOK = true
+	h(context.Background(), push) // config recovered: same commit now deploys
+	if dispatched != 1 {
+		t.Errorf("dispatched = %d after recovery, want 1", dispatched)
+	}
+	repoState, err := store.GetRepoState("myapp", "main")
+	if err != nil {
+		t.Fatalf("GetRepoState: %v", err)
+	}
+	if repoState == nil || repoState.LastDeployedSha != "aabbccdd" {
+		t.Error("LastDeployedSha should advance once the retry succeeds")
 	}
 }
 

@@ -27,6 +27,7 @@ type Poller struct {
 	dataPath         string
 	store            *state.FileStore
 	onDeploy         func(context.Context, planner.RepoEvent)
+	reloadConfigRepo func(ctx context.Context, repoName string) error
 	logger           *slog.Logger
 	findRepo         func(url string) (repoOpener, error)
 	findConfigMirror func(url string) (repoOpener, error) // nil when no config mirror exists
@@ -39,16 +40,18 @@ func New(
 	configMirrorDataPath string,
 	store *state.FileStore,
 	onDeploy func(context.Context, planner.RepoEvent),
+	reloadConfigRepo func(ctx context.Context, repoName string) error,
 	logger *slog.Logger,
 	sshEnv []string,
 ) *Poller {
 	poller := &Poller{
-		deployConfig: deployConfig,
-		dataPath:     dataPath,
-		store:        store,
-		onDeploy:     onDeploy,
-		logger:       logger.With("component", "poller"),
-		sshEnv:       sshEnv,
+		deployConfig:     deployConfig,
+		dataPath:         dataPath,
+		store:            store,
+		onDeploy:         onDeploy,
+		reloadConfigRepo: reloadConfigRepo,
+		logger:           logger.With("component", "poller"),
+		sshEnv:           sshEnv,
 	}
 	poller.findRepo = func(url string) (repoOpener, error) {
 		repo, err := mirror.Find(url, poller.dataPath, poller.sshEnv, poller.logger)
@@ -158,6 +161,17 @@ func (poller *Poller) HandleSHA(ctx context.Context, repo config.RepoConfig, sha
 					poller.logger.Warn("diff failed, deploying unconditionally", "repo", repo.Name, "err", dErr)
 				}
 			}
+		}
+	}
+
+	if poller.reloadConfigRepo != nil {
+		if err := poller.reloadConfigRepo(ctx, repo.Name); err != nil {
+			poller.logger.Warn("config repo reload failed, deferring deploy until config is valid",
+				"repo", repo.Name, "err", err)
+			if err := poller.store.SaveRepoState(repoState); err != nil {
+				poller.logger.Warn("failed to save repo state", "repo", repo.Name, "err", err)
+			}
+			return
 		}
 	}
 

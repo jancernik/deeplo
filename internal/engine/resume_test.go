@@ -156,6 +156,43 @@ func TestResume_SkipsTargetBehindHead_WhenUntouched(t *testing.T) {
 	}
 }
 
+// Within one repo, only the project whose watched paths changed is resumed; a
+// sibling project left untouched by the same commit range is skipped. This is the
+// per-project granularity the fix exists for.
+func TestResume_ResumesOnlyTheTouchedProject(t *testing.T) {
+	deployConfig := &config.Config{
+		Hosts: []config.Host{{Name: "h1", Address: "10.0.0.1", DeployDir: "/srv"}},
+		Repos: []config.RepoConfig{{Name: "myrepo", Branch: "main"}},
+		Projects: []config.Project{
+			{Name: "web", Repo: "myrepo", Targets: []string{"h1"}, RepoSubdir: "web", DeploySubdir: "web"},
+			{Name: "api", Repo: "myrepo", Targets: []string{"h1"}, RepoSubdir: "api", DeploySubdir: "api"},
+		},
+	}
+	store := makeTestStore(t)
+	seedSuccess(t, store, "web", "h1", "oldsha")
+	seedSuccess(t, store, "api", "h1", "oldsha")
+
+	// The commit range touched only the web project's subtree.
+	differ := stubDiffer{files: []string{"web/compose.yaml"}}
+
+	var events []planner.RepoEvent
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
+		func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) }, slog.Default())
+
+	projects := map[string]bool{}
+	for _, ev := range events {
+		for _, target := range ev.ForcedTargets {
+			projects[target.Project.Name] = true
+		}
+	}
+	if !projects["web"] {
+		t.Error("web was touched between oldsha..newsha and should be resumed")
+	}
+	if projects["api"] {
+		t.Error("api was not touched; should not be resumed")
+	}
+}
+
 // A failed target is retried even when the diff would not match it.
 func TestResume_RetriesFailedTargetEvenWhenUntouched(t *testing.T) {
 	deployConfig := resumeTestConfig()

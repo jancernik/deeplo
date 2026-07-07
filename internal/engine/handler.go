@@ -126,6 +126,7 @@ func MakeWebhookPushHandler(
 	getConfig func() *config.Config,
 	store *state.FileStore,
 	onDeploy func(context.Context, planner.RepoEvent),
+	reloadConfigRepo func(ctx context.Context, repoName string) error,
 	logger *slog.Logger,
 ) func(context.Context, webhook.PushEvent) {
 	var mutex sync.Mutex
@@ -162,6 +163,14 @@ func MakeWebhookPushHandler(
 				"trigger_mode", repo.TriggerMode,
 			)
 			return
+		}
+
+		if reloadConfigRepo != nil {
+			if err := reloadConfigRepo(ctx, repo.Name); err != nil {
+				log.Warn("config repo reload failed, deferring deploy until config is valid",
+					"repo", repo.Name, "err", err)
+				return
+			}
 		}
 
 		changedFiles := push.ChangedFiles

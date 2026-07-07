@@ -71,6 +71,7 @@ func newPoller(deployConfig *config.Config, store *state.FileStore) (*Poller, <-
 	ch := make(chan planner.RepoEvent, 32)
 	p := New(deployConfig, "", "", store,
 		func(_ context.Context, ev planner.RepoEvent) { ch <- ev },
+		nil,
 		slog.Default(), nil)
 	return p, ch
 }
@@ -111,6 +112,74 @@ func TestHandleSHA_NewCommit_Dispatches(t *testing.T) {
 		}
 	default:
 		t.Fatal("no event dispatched")
+	}
+}
+
+// A config-repo reload failure defers the commit: no deploy is dispatched and
+// LastDeployedSha is left unchanged, so the next poll retries it.
+func TestHandleSHA_ReloadFailureDefersDeploy(t *testing.T) {
+	deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
+	store := makeStore(t)
+	ch := make(chan planner.RepoEvent, 1)
+	p := New(deployConfig, "", "", store,
+		func(_ context.Context, ev planner.RepoEvent) { ch <- ev },
+		func(_ context.Context, _ string) error { return errors.New("config unavailable") },
+		slog.Default(), nil)
+	withNoMirror(p)
+
+	const sha = "aabbccdd1122334455667788990011223344556677"
+	p.HandleSHA(context.Background(), deployConfig.Repos[0], sha)
+
+	select {
+	case <-ch:
+		t.Fatal("deploy dispatched despite reload failure")
+	default:
+	}
+	repoState, err := store.GetRepoState("myrepo", "main")
+	if err != nil {
+		t.Fatalf("GetRepoState: %v", err)
+	}
+	if repoState != nil && repoState.LastDeployedSha == sha {
+		t.Error("LastDeployedSha must not advance when the reload fails")
+	}
+}
+
+// A commit deferred by a reload failure is dispatched on the next poll once the
+// config recovers, since the first attempt left LastDeployedSha unchanged.
+func TestHandleSHA_DeferredCommitRetriesAfterReloadRecovers(t *testing.T) {
+	deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
+	store := makeStore(t)
+	ch := make(chan planner.RepoEvent, 1)
+	reloadOK := false
+	p := New(deployConfig, "", "", store,
+		func(_ context.Context, ev planner.RepoEvent) { ch <- ev },
+		func(_ context.Context, _ string) error {
+			if !reloadOK {
+				return errors.New("config unavailable")
+			}
+			return nil
+		},
+		slog.Default(), nil)
+	withNoMirror(p)
+
+	const sha = "aabbccdd1122334455667788990011223344556677"
+
+	p.HandleSHA(context.Background(), deployConfig.Repos[0], sha) // reload broken: deferred
+	select {
+	case <-ch:
+		t.Fatal("deploy dispatched despite reload failure")
+	default:
+	}
+
+	reloadOK = true
+	p.HandleSHA(context.Background(), deployConfig.Repos[0], sha) // recovered: same commit deploys
+	select {
+	case ev := <-ch:
+		if ev.CommitSha != sha {
+			t.Errorf("dispatched sha = %q, want %q", ev.CommitSha, sha)
+		}
+	default:
+		t.Fatal("deploy not dispatched after config recovered")
 	}
 }
 
