@@ -17,6 +17,11 @@ type MirrorDiffer interface {
 	DiffFiles(ctx context.Context, oldSha, newSha string) ([]string, error)
 }
 
+type MirrorRepo interface {
+	MirrorDiffer
+	EnsureCommit(ctx context.Context, sha string) error
+}
+
 // Recovers targets whose deploy jobs were dropped when the daemon stopped
 // mid-fan-out. A target is resumed only when the commits since its last successful
 // deploy touched its watched paths, so unrelated projects are left untouched.
@@ -25,7 +30,7 @@ func ResumeIncompleteDeploys(
 	deployConfig *config.Config,
 	store *state.FileStore,
 	getMirrorHead func(repoURL, branch string) (string, bool),
-	findMirror func(repoURL string) MirrorDiffer,
+	findMirror func(repoURL string) MirrorRepo,
 	onDeploy func(context.Context, planner.RepoEvent),
 	logger *slog.Logger,
 ) {
@@ -52,9 +57,15 @@ func ResumeIncompleteDeploys(
 			sha = repoState.LastDeployedSha
 		}
 
-		var repoMirror MirrorDiffer
+		var repoMirror MirrorRepo
 		if findMirror != nil {
 			repoMirror = findMirror(repoConfig.URL)
+		}
+		if repoMirror != nil && !repoMirror.HasCommit(ctx, sha) {
+			if err := repoMirror.EnsureCommit(ctx, sha); err != nil {
+				logger.Warn("could not fetch head commit for resume; targets may over-deploy",
+					"repo", repoName, "sha", utils.ShortSha(sha), "err", err)
+			}
 		}
 
 		pending := PendingTargetsForHead(ctx, store, repoTargets, sha, repoMirror, logger)

@@ -143,7 +143,7 @@ func (app *App) Run(ctx context.Context) error {
 		return resolveMirrorHead(repoURL, branch, app.env.DataPath, app.env.Source, sshEnv, app.logger)
 	}
 
-	findMirror := func(repoURL string) engine.MirrorDiffer {
+	findMirror := func(repoURL string) engine.MirrorRepo {
 		return resolveMirror(repoURL, app.env.DataPath, app.env.Source, sshEnv, app.logger)
 	}
 
@@ -486,7 +486,7 @@ func resolveMirrorHead(repoURL, branch, dataPath string, source bootstrap.Source
 
 // Returns the best available local mirror for repoURL, following the same lookup
 // order as resolveMirrorHead.
-func resolveMirror(repoURL, dataPath string, source bootstrap.Source, sshEnv []string, logger *slog.Logger) engine.MirrorDiffer {
+func resolveMirror(repoURL, dataPath string, source bootstrap.Source, sshEnv []string, logger *slog.Logger) engine.MirrorRepo {
 	if source == bootstrap.SourceGit {
 		if configRepo, _ := mirror.Find(repoURL, filepath.Join(dataPath, "config"), sshEnv, logger); configRepo != nil {
 			return configRepo

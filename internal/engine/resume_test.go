@@ -26,29 +26,41 @@ func resumeTestConfig() *config.Config {
 
 type stubDiffer struct {
 	files         []string
-	commitMissing bool
+	commitMissing bool // HasCommit returns false until EnsureCommit fetches
+	fetched       bool
 	notAncestor   bool
 	diffErr       error
+	ensureErr     error
+	ensureCalls   int
 }
 
-func (stub stubDiffer) HasCommit(context.Context, string) bool {
-	return !stub.commitMissing
+func (stub *stubDiffer) HasCommit(context.Context, string) bool {
+	return !stub.commitMissing || stub.fetched
 }
 
-func (stub stubDiffer) IsAncestor(context.Context, string, string) bool {
+func (stub *stubDiffer) EnsureCommit(context.Context, string) error {
+	stub.ensureCalls++
+	if stub.ensureErr != nil {
+		return stub.ensureErr
+	}
+	stub.fetched = true
+	return nil
+}
+
+func (stub *stubDiffer) IsAncestor(context.Context, string, string) bool {
 	return !stub.notAncestor
 }
 
-func (stub stubDiffer) DiffFiles(context.Context, string, string) ([]string, error) {
+func (stub *stubDiffer) DiffFiles(context.Context, string, string) ([]string, error) {
 	return stub.files, stub.diffErr
 }
 
 var errStub = errors.New("stub diff failure")
 
-func nilFinder(string) engine.MirrorDiffer { return nil }
+func nilFinder(string) engine.MirrorRepo { return nil }
 
-func differFinder(differ engine.MirrorDiffer) func(string) engine.MirrorDiffer {
-	return func(string) engine.MirrorDiffer { return differ }
+func differFinder(differ engine.MirrorRepo) func(string) engine.MirrorRepo {
+	return func(string) engine.MirrorRepo { return differ }
 }
 
 func seedSuccess(t *testing.T, store *state.FileStore, project, host, sha string) {
@@ -126,7 +138,7 @@ func TestResume_RedeploysTargetBehindHead_WhenTouched(t *testing.T) {
 	seedSuccess(t, store, "app", "h1", "oldsha")
 	seedSuccess(t, store, "app", "h2", "oldsha")
 
-	differ := stubDiffer{files: []string{"app/docker-compose.yml"}}
+	differ := &stubDiffer{files: []string{"app/docker-compose.yml"}}
 
 	var events []planner.RepoEvent
 	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
@@ -145,7 +157,7 @@ func TestResume_SkipsTargetBehindHead_WhenUntouched(t *testing.T) {
 	seedSuccess(t, store, "app", "h1", "oldsha")
 	seedSuccess(t, store, "app", "h2", "oldsha")
 
-	differ := stubDiffer{files: []string{"other-project/config.yml"}}
+	differ := &stubDiffer{files: []string{"other-project/config.yml"}}
 
 	dispatched := 0
 	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
@@ -173,7 +185,7 @@ func TestResume_ResumesOnlyTheTouchedProject(t *testing.T) {
 	seedSuccess(t, store, "api", "h1", "oldsha")
 
 	// The commit range touched only the web project's subtree.
-	differ := stubDiffer{files: []string{"web/compose.yaml"}}
+	differ := &stubDiffer{files: []string{"web/compose.yaml"}}
 
 	var events []planner.RepoEvent
 	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
@@ -200,7 +212,7 @@ func TestResume_RetriesFailedTargetEvenWhenUntouched(t *testing.T) {
 	seedFailed(t, store, "app", "h1", "oldsha")
 	seedFailed(t, store, "app", "h2", "oldsha")
 
-	differ := stubDiffer{files: []string{"other-project/config.yml"}}
+	differ := &stubDiffer{files: []string{"other-project/config.yml"}}
 
 	var events []planner.RepoEvent
 	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
@@ -214,11 +226,10 @@ func TestResume_RetriesFailedTargetEvenWhenUntouched(t *testing.T) {
 
 // When the mirror can't answer, resume falls back to deploying rather than dropping the target.
 func TestResume_FallsBackToUnconditionalWhenMirrorUnavailable(t *testing.T) {
-	cases := map[string]func(string) engine.MirrorDiffer{
-		"nil finder":     nilFinder,
-		"commit missing": differFinder(stubDiffer{commitMissing: true, files: []string{"other/x"}}),
-		"diff error":     differFinder(stubDiffer{diffErr: errStub, files: []string{"other/x"}}),
-		"not ancestor":   differFinder(stubDiffer{notAncestor: true, files: []string{"other/x"}}),
+	cases := map[string]func(string) engine.MirrorRepo{
+		"nil finder":   nilFinder,
+		"diff error":   differFinder(&stubDiffer{diffErr: errStub, files: []string{"other/x"}}),
+		"not ancestor": differFinder(&stubDiffer{notAncestor: true, files: []string{"other/x"}}),
 	}
 	for name, finder := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -236,6 +247,31 @@ func TestResume_FallsBackToUnconditionalWhenMirrorUnavailable(t *testing.T) {
 				t.Errorf("mirror unavailable should fall back to resuming both, got %v", hosts)
 			}
 		})
+	}
+}
+
+// Regression: a head commit that was never deployed is absent from the mirror
+// (e.g. a config-only push, or a revert whose tree equals the last deploy). Resume
+// must fetch it and diff, not treat "head missing" as "redeploy everything".
+func TestResume_FetchesMissingHeadBeforeDiffing(t *testing.T) {
+	deployConfig := resumeTestConfig()
+	store := makeTestStore(t)
+	seedSuccess(t, store, "app", "h1", "oldsha")
+	seedSuccess(t, store, "app", "h2", "oldsha")
+
+	// Head is not in the mirror yet; once fetched, the diff touches nothing the
+	// project watches.
+	differ := &stubDiffer{commitMissing: true, files: []string{"other-project/config.yml"}}
+
+	dispatched := 0
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
+		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
+
+	if differ.ensureCalls == 0 {
+		t.Error("resume must fetch the missing head commit before diffing")
+	}
+	if dispatched != 0 {
+		t.Errorf("head was fetched and the diff touched nothing; expected no dispatch, got %d", dispatched)
 	}
 }
 
