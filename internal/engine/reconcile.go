@@ -31,41 +31,45 @@ type TeardownTarget struct {
 func FindTeardownTargets(oldConfig, newConfig *config.Config) []TeardownTarget {
 	newProjects := newConfig.ProjectIndex()
 	oldHosts := oldConfig.HostIndex()
+	newHosts := newConfig.HostIndex()
 
 	var targets []TeardownTarget
 
 	for _, oldProject := range oldConfig.Projects {
 		newProject, stillInConfig := newProjects[oldProject.Name]
-		dirRenamed := stillInConfig && newProject.DeploySubdir != oldProject.DeploySubdir
 
-		remainingHosts := make(map[string]bool)
-		if stillInConfig && !dirRenamed {
-			for _, hostName := range newProject.Targets {
-				remainingHosts[hostName] = true
-			}
-		}
-
-		newTargets := make(map[string]bool)
+		newTargetHosts := make(map[string]bool)
 		if stillInConfig {
 			for _, hostName := range newProject.Targets {
-				newTargets[hostName] = true
+				newTargetHosts[hostName] = true
 			}
 		}
 
 		for _, hostName := range oldProject.Targets {
-			host, ok := oldHosts[hostName]
+			oldHost, ok := oldHosts[hostName]
 			if !ok {
 				continue
 			}
-			if !stillInConfig || dirRenamed || !remainingHosts[hostName] {
-				targets = append(targets, TeardownTarget{
-					ProjectName:  oldProject.Name,
-					Host:         host,
-					RemoteDir:    path.Join(host.DeployDir, oldProject.DeploySubdir),
-					ComposeFiles: oldProject.ComposeFiles,
-					RemoveState:  !newTargets[hostName],
-				})
+			oldRemoteDir := path.Join(oldHost.DeployDir, oldProject.DeploySubdir)
+
+			stillTargeted := stillInConfig && newTargetHosts[hostName]
+			sameLocation := false
+			if stillTargeted {
+				if newHost, ok := newHosts[hostName]; ok {
+					sameLocation = path.Join(newHost.DeployDir, newProject.DeploySubdir) == oldRemoteDir
+				}
 			}
+			if sameLocation {
+				continue
+			}
+
+			targets = append(targets, TeardownTarget{
+				ProjectName:  oldProject.Name,
+				Host:         oldHost,
+				RemoteDir:    oldRemoteDir,
+				ComposeFiles: oldProject.ComposeFiles,
+				RemoveState:  !stillTargeted,
+			})
 		}
 	}
 

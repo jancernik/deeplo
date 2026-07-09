@@ -103,6 +103,31 @@ func TestFindTeardownTargets_DeploySubdirChanged(t *testing.T) {
 	}
 }
 
+// A host's deploy_dir change relocates the deployment, so the old directory
+// (deploy_dir/deploy_subdir) must be torn down. The record is kept, since the
+// same target is redeployed at the new directory.
+func TestFindTeardownTargets_HostDeployDirChanged(t *testing.T) {
+	oldConfig := &config.Config{
+		Hosts:    []config.Host{{Name: "h1", Address: "10.0.0.1", DeployDir: "/opt/apps"}},
+		Projects: []config.Project{{Name: "app", Targets: []string{"h1"}, DeploySubdir: "app"}},
+	}
+	newConfig := &config.Config{
+		Hosts:    []config.Host{{Name: "h1", Address: "10.0.0.1", DeployDir: "/srv"}},
+		Projects: []config.Project{{Name: "app", Targets: []string{"h1"}, DeploySubdir: "app"}},
+	}
+
+	targets := engine.FindTeardownTargets(oldConfig, newConfig)
+	if len(targets) != 1 {
+		t.Fatalf("expected 1 teardown for deploy_dir change, got %d: %+v", len(targets), targets)
+	}
+	if targets[0].RemoteDir != "/opt/apps/app" {
+		t.Errorf("RemoteDir = %s, want /opt/apps/app (the old location)", targets[0].RemoteDir)
+	}
+	if targets[0].RemoveState {
+		t.Error("RemoveState should be false: the target is relocated, not removed")
+	}
+}
+
 func TestFindTeardownTargets_DeploySubdirUnchanged_NoTeardown(t *testing.T) {
 	hosts := reconcileTestHosts()
 	oldConfig := &config.Config{
