@@ -29,8 +29,7 @@ func ResumeIncompleteDeploys(
 	ctx context.Context,
 	deployConfig *config.Config,
 	store *state.FileStore,
-	getMirrorHead func(repoURL, branch string) (string, bool),
-	findMirror func(repoURL string) MirrorRepo,
+	resolveMirror func(repoURL, branch string) (MirrorRepo, string, bool),
 	onDeploy func(context.Context, planner.RepoEvent),
 	logger *slog.Logger,
 ) {
@@ -46,7 +45,7 @@ func ResumeIncompleteDeploys(
 	for repoName, repoTargets := range targetsByRepo {
 		repoConfig := repoTargets[0].Repo
 
-		sha, ok := getMirrorHead(repoConfig.URL, repoConfig.Branch)
+		repoMirror, sha, ok := resolveMirror(repoConfig.URL, repoConfig.Branch)
 		if !ok || sha == "" {
 			repoState, err := store.GetRepoState(repoName, repoConfig.Branch)
 			if err != nil || repoState == nil || repoState.LastDeployedSha == "" {
@@ -57,10 +56,6 @@ func ResumeIncompleteDeploys(
 			sha = repoState.LastDeployedSha
 		}
 
-		var repoMirror MirrorRepo
-		if findMirror != nil {
-			repoMirror = findMirror(repoConfig.URL)
-		}
 		if repoMirror != nil && !repoMirror.HasCommit(ctx, sha) {
 			if err := repoMirror.EnsureCommit(ctx, sha); err != nil {
 				logger.Warn("could not fetch head commit for resume; targets may over-deploy",

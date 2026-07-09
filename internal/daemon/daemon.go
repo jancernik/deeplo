@@ -139,12 +139,12 @@ func (app *App) Run(ctx context.Context) error {
 
 	getConfig := func() *config.Config { return app.config.Load() }
 
-	getMirrorHead := func(repoURL, branch string) (string, bool) {
-		return resolveMirrorHead(repoURL, branch, app.env.DataPath, app.env.Source, sshEnv, app.logger)
+	resolveRepoMirror := func(repoURL, branch string) (engine.MirrorRepo, string, bool) {
+		return resolveMirror(repoURL, branch, app.env.DataPath, app.env.Source, sshEnv, app.logger)
 	}
-
-	findMirror := func(repoURL string) engine.MirrorRepo {
-		return resolveMirror(repoURL, app.env.DataPath, app.env.Source, sshEnv, app.logger)
+	getMirrorHead := func(repoURL, branch string) (string, bool) {
+		_, head, ok := resolveRepoMirror(repoURL, branch)
+		return head, ok
 	}
 
 	// Reloads the deploy config when an event targets the config repo.
@@ -204,7 +204,7 @@ func (app *App) Run(ctx context.Context) error {
 	app.reconcileLoop.Start(intakeCtx)
 	app.reconcileLoop.Trigger()
 
-	engine.ResumeIncompleteDeploys(opsCtx, configResult.Config, app.store, getMirrorHead, findMirror, app.deployHandler, app.logger)
+	engine.ResumeIncompleteDeploys(opsCtx, configResult.Config, app.store, resolveRepoMirror, app.deployHandler, app.logger)
 
 	app.watcher = &managedWatcher{}
 	app.watcher.start(buildWatcher(configResult.Config, getConfig, app.env, app.reloader, app.deployHandler, reloadConfigRepo, app.store, sshEnv, app.logger), opsCtx)
@@ -465,37 +465,21 @@ func (managed *managedWatcher) restart(appCtx context.Context, instance *repowat
 	}
 }
 
-// Returns the branch tip SHA from the best available local mirror.
-func resolveMirrorHead(repoURL, branch, dataPath string, source bootstrap.Source, sshEnv []string, logger *slog.Logger) (string, bool) {
+// Returns the best available local mirror for repoURL together with its head sha
+func resolveMirror(repoURL, branch, dataPath string, source bootstrap.Source, sshEnv []string, logger *slog.Logger) (engine.MirrorRepo, string, bool) {
 	if source == bootstrap.SourceGit {
-		configRepo, _ := mirror.Find(repoURL, filepath.Join(dataPath, "config"), sshEnv, logger)
-		if configRepo != nil {
+		if configRepo, _ := mirror.Find(repoURL, filepath.Join(dataPath, "config"), sshEnv, logger); configRepo != nil {
 			if head, err := configRepo.LocalHead(branch); err == nil {
-				return head, true
+				return configRepo, head, true
 			}
 		}
 	}
-	deployRepo, _ := mirror.Find(repoURL, dataPath, sshEnv, logger)
-	if deployRepo != nil {
-		if head, err := deployRepo.LocalHead(branch); err == nil {
-			return head, true
-		}
-	}
-	return "", false
-}
-
-// Returns the best available local mirror for repoURL, following the same lookup
-// order as resolveMirrorHead.
-func resolveMirror(repoURL, dataPath string, source bootstrap.Source, sshEnv []string, logger *slog.Logger) engine.MirrorRepo {
-	if source == bootstrap.SourceGit {
-		if configRepo, _ := mirror.Find(repoURL, filepath.Join(dataPath, "config"), sshEnv, logger); configRepo != nil {
-			return configRepo
-		}
-	}
 	if deployRepo, _ := mirror.Find(repoURL, dataPath, sshEnv, logger); deployRepo != nil {
-		return deployRepo
+		if head, err := deployRepo.LocalHead(branch); err == nil {
+			return deployRepo, head, true
+		}
 	}
-	return nil
+	return nil, "", false
 }
 
 func isConfigRepo(repoName, configRepoFullName string, repos []config.RepoConfig) bool {

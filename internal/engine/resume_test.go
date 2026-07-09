@@ -57,11 +57,14 @@ func (stub *stubDiffer) DiffFiles(context.Context, string, string) ([]string, er
 
 var errStub = errors.New("stub diff failure")
 
-func nilFinder(string) engine.MirrorRepo { return nil }
-
-func differFinder(differ engine.MirrorRepo) func(string) engine.MirrorRepo {
-	return func(string) engine.MirrorRepo { return differ }
+// resolver returns a resume mirror-resolver that reports head and the given mirror
+// (nil for "no local mirror") for every repo.
+func resolver(head string, repo engine.MirrorRepo) func(string, string) (engine.MirrorRepo, string, bool) {
+	return func(string, string) (engine.MirrorRepo, string, bool) { return repo, head, true }
 }
+
+// noResolver reports no mirror and no head, forcing the repo-state fallback.
+func noResolver(string, string) (engine.MirrorRepo, string, bool) { return nil, "", false }
 
 func seedSuccess(t *testing.T, store *state.FileStore, project, host, sha string) {
 	t.Helper()
@@ -95,10 +98,6 @@ func collectForced(events []planner.RepoEvent) map[string]bool {
 	return hosts
 }
 
-func mirrorAt(sha string) func(string, string) (string, bool) {
-	return func(string, string) (string, bool) { return sha, true }
-}
-
 // Only targets not already deployed at the desired commit are resumed: here h1
 // succeeded at the mirror head and must be skipped, while h2 (no record) is
 // dispatched. This is the dropped-on-shutdown recovery case.
@@ -108,7 +107,7 @@ func TestResume_DeploysOnlyIncompleteTargets(t *testing.T) {
 	seedSuccess(t, store, "app", "h1", "headsha")
 
 	var events []planner.RepoEvent
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("headsha"), nilFinder,
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("headsha", nil),
 		func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) }, slog.Default())
 
 	hosts := collectForced(events)
@@ -141,7 +140,7 @@ func TestResume_RedeploysTargetBehindHead_WhenTouched(t *testing.T) {
 	differ := &stubDiffer{files: []string{"app/docker-compose.yml"}}
 
 	var events []planner.RepoEvent
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("newsha", differ),
 		func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) }, slog.Default())
 
 	hosts := collectForced(events)
@@ -160,7 +159,7 @@ func TestResume_SkipsTargetBehindHead_WhenUntouched(t *testing.T) {
 	differ := &stubDiffer{files: []string{"other-project/config.yml"}}
 
 	dispatched := 0
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("newsha", differ),
 		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
 
 	if dispatched != 0 {
@@ -188,7 +187,7 @@ func TestResume_ResumesOnlyTheTouchedProject(t *testing.T) {
 	differ := &stubDiffer{files: []string{"web/compose.yaml"}}
 
 	var events []planner.RepoEvent
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("newsha", differ),
 		func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) }, slog.Default())
 
 	projects := map[string]bool{}
@@ -215,7 +214,7 @@ func TestResume_RetriesFailedTargetEvenWhenUntouched(t *testing.T) {
 	differ := &stubDiffer{files: []string{"other-project/config.yml"}}
 
 	var events []planner.RepoEvent
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("newsha", differ),
 		func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) }, slog.Default())
 
 	hosts := collectForced(events)
@@ -226,12 +225,12 @@ func TestResume_RetriesFailedTargetEvenWhenUntouched(t *testing.T) {
 
 // When the mirror can't answer, resume falls back to deploying rather than dropping the target.
 func TestResume_FallsBackToUnconditionalWhenMirrorUnavailable(t *testing.T) {
-	cases := map[string]func(string) engine.MirrorRepo{
-		"nil finder":   nilFinder,
-		"diff error":   differFinder(&stubDiffer{diffErr: errStub, files: []string{"other/x"}}),
-		"not ancestor": differFinder(&stubDiffer{notAncestor: true, files: []string{"other/x"}}),
+	cases := map[string]func(string, string) (engine.MirrorRepo, string, bool){
+		"nil mirror":   resolver("newsha", nil),
+		"diff error":   resolver("newsha", &stubDiffer{diffErr: errStub, files: []string{"other/x"}}),
+		"not ancestor": resolver("newsha", &stubDiffer{notAncestor: true, files: []string{"other/x"}}),
 	}
-	for name, finder := range cases {
+	for name, resolve := range cases {
 		t.Run(name, func(t *testing.T) {
 			deployConfig := resumeTestConfig()
 			store := makeTestStore(t)
@@ -239,7 +238,7 @@ func TestResume_FallsBackToUnconditionalWhenMirrorUnavailable(t *testing.T) {
 			seedSuccess(t, store, "app", "h2", "oldsha")
 
 			var events []planner.RepoEvent
-			engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), finder,
+			engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolve,
 				func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) }, slog.Default())
 
 			hosts := collectForced(events)
@@ -264,7 +263,7 @@ func TestResume_FetchesMissingHeadBeforeDiffing(t *testing.T) {
 	differ := &stubDiffer{commitMissing: true, files: []string{"other-project/config.yml"}}
 
 	dispatched := 0
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("newsha"), differFinder(differ),
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("newsha", differ),
 		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
 
 	if differ.ensureCalls == 0 {
@@ -283,7 +282,7 @@ func TestResume_NothingWhenAllUpToDate(t *testing.T) {
 	seedSuccess(t, store, "app", "h2", "headsha")
 
 	dispatched := 0
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, mirrorAt("headsha"), nilFinder,
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("headsha", nil),
 		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
 
 	if dispatched != 0 {
@@ -300,7 +299,7 @@ func TestResume_FallsBackToRepoState(t *testing.T) {
 	seedSuccess(t, store, "app", "h1", "statesha") // h1 up to date at the fallback sha
 
 	var events []planner.RepoEvent
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, noMirror, nilFinder,
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, noResolver,
 		func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) }, slog.Default())
 
 	hosts := collectForced(events)
@@ -324,7 +323,7 @@ func TestResume_SkipsRepoWithNoKnownCommit(t *testing.T) {
 	store := makeTestStore(t)
 
 	dispatched := 0
-	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, noMirror, nilFinder,
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, noResolver,
 		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
 
 	if dispatched != 0 {
@@ -334,7 +333,7 @@ func TestResume_SkipsRepoWithNoKnownCommit(t *testing.T) {
 
 func TestResume_NilStore_Noop(t *testing.T) {
 	dispatched := 0
-	engine.ResumeIncompleteDeploys(context.Background(), resumeTestConfig(), nil, mirrorAt("x"), nilFinder,
+	engine.ResumeIncompleteDeploys(context.Background(), resumeTestConfig(), nil, resolver("x", nil),
 		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
 	if dispatched != 0 {
 		t.Errorf("nil store should be a no-op, got %d dispatches", dispatched)

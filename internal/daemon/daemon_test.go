@@ -120,7 +120,7 @@ func TestIsConfigRepo_NameCollisionDifferentURL(t *testing.T) {
 	}
 }
 
-// resolveMirrorHead
+// resolveMirror
 //
 // These need a real git binary (mirror.Open/LocalHead shell out). Deploy mirror
 // lives at {dataPath}/repos/{slug}, config mirror at {dataPath}/config/repos/{slug}.
@@ -189,7 +189,7 @@ func cloneAsConfigMirror(t *testing.T, bareURL, dataPath string) {
 	}
 }
 
-// resolveMirrorHead runs in ReconcileAdditions after the config mirror is fetched.
+// resolveMirror runs in ReconcileAdditions after the config mirror is fetched.
 // The config mirror is checked first (SourceGit, guaranteed latest); the deploy
 // mirror is the fallback for non-matching URLs and the sole source for SourceLocal.
 
@@ -199,7 +199,7 @@ func TestResolveMirrorHead_OnlyDeployMirror(t *testing.T) {
 	dataPath := t.TempDir()
 	cloneAsDeployMirror(t, bare, dataPath)
 
-	got, ok := resolveMirrorHead(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, got, ok := resolveMirror(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if !ok {
 		t.Fatal("expected ok=true when deploy mirror exists")
 	}
@@ -214,7 +214,7 @@ func TestResolveMirrorHead_OnlyConfigMirror(t *testing.T) {
 	dataPath := t.TempDir()
 	cloneAsConfigMirror(t, bare, dataPath)
 
-	got, ok := resolveMirrorHead(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, got, ok := resolveMirror(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if !ok {
 		t.Fatal("expected ok=true when config mirror exists")
 	}
@@ -228,7 +228,7 @@ func TestResolveMirrorHead_NeitherMirror(t *testing.T) {
 	bare, _ := setupBareRepo(t)
 	dataPath := t.TempDir()
 
-	_, ok := resolveMirrorHead(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, _, ok := resolveMirror(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if ok {
 		t.Error("expected ok=false when no mirrors exist")
 	}
@@ -240,7 +240,7 @@ func TestResolveMirrorHead_SourceLocal_IgnoresConfigMirror(t *testing.T) {
 	dataPath := t.TempDir()
 	cloneAsConfigMirror(t, bare, dataPath)
 
-	_, ok := resolveMirrorHead(bare, "main", dataPath, bootstrap.SourceLocal, nil, slog.Default())
+	_, _, ok := resolveMirror(bare, "main", dataPath, bootstrap.SourceLocal, nil, slog.Default())
 	if ok {
 		t.Error("expected ok=false: SourceLocal must not consult the config mirror path")
 	}
@@ -253,7 +253,7 @@ func TestResolveMirrorHead_BothMirrors_PrefersConfig(t *testing.T) {
 	cloneAsDeployMirror(t, bare, dataPath)
 	cloneAsConfigMirror(t, bare, dataPath)
 
-	got, ok := resolveMirrorHead(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, got, ok := resolveMirror(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -263,7 +263,7 @@ func TestResolveMirrorHead_BothMirrors_PrefersConfig(t *testing.T) {
 }
 
 // Regression (commit-status visibility): on a config-push trigger the config
-// mirror is at the new SHA while the deploy mirror is stale, so resolveMirrorHead
+// mirror is at the new SHA while the deploy mirror is stale, so resolveMirror
 // must return the config mirror SHA to land on the just-pushed commit.
 func TestResolveMirrorHead_ConfigMirrorAheadOfDeploy(t *testing.T) {
 	requireGit(t)
@@ -302,7 +302,7 @@ func TestResolveMirrorHead_ConfigMirrorAheadOfDeploy(t *testing.T) {
 
 	cloneAsConfigMirror(t, bare, dataPath) // config mirror at sha2
 
-	got, ok := resolveMirrorHead(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, got, ok := resolveMirror(bare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if !ok {
 		t.Fatal("expected ok=true")
 	}
@@ -317,7 +317,7 @@ func TestResolveMirrorHead_UnknownBranch(t *testing.T) {
 	dataPath := t.TempDir()
 	cloneAsDeployMirror(t, bare, dataPath)
 
-	_, ok := resolveMirrorHead(bare, "no-such-branch", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, _, ok := resolveMirror(bare, "no-such-branch", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if ok {
 		t.Error("expected ok=false for a branch that does not exist in the mirror")
 	}
@@ -336,7 +336,7 @@ func TestResolveMirrorHead_SeparateRepos_DeployMirrorUsed(t *testing.T) {
 	cloneAsConfigMirror(t, configBare, dataPath) // config mirror → config repo slug
 	cloneAsDeployMirror(t, appBare, dataPath)    // deploy mirror → app repo slug
 
-	got, ok := resolveMirrorHead(appBare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, got, ok := resolveMirror(appBare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if !ok {
 		t.Fatal("expected ok=true when deploy mirror exists for the queried URL")
 	}
@@ -354,7 +354,7 @@ func TestResolveMirrorHead_SeparateRepos_NoDeployMirror_ReturnsNotFound(t *testi
 
 	cloneAsConfigMirror(t, configBare, dataPath) // config mirror exists for the config repo
 
-	_, ok := resolveMirrorHead(appBare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
+	_, _, ok := resolveMirror(appBare, "main", dataPath, bootstrap.SourceGit, nil, slog.Default())
 	if ok {
 		t.Error("expected ok=false: config mirror for a different URL must not match the queried repo")
 	}

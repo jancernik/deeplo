@@ -325,7 +325,7 @@ func TestResumeIncompleteDeployIntegration(t *testing.T) {
 	}
 	assertContainerRunning(t, "app", false)
 
-	engine.ResumeIncompleteDeploys(ctx, env.configWith, env.store, env.mirrorHead, nilFinder, env.deployHandler, slog.Default())
+	engine.ResumeIncompleteDeploys(ctx, env.configWith, env.store, func(_, _ string) (engine.MirrorRepo, string, bool) { return nil, env.sha, true }, env.deployHandler, slog.Default())
 	resumed := waitDeploy(t, env.store, "app", "h1", env.sha, 3*time.Minute)
 	if resumed.Status != state.StatusSuccess {
 		t.Fatalf("resumed deploy status = %q, want success (err: %s)", resumed.Status, resumed.Error)
@@ -336,7 +336,7 @@ func TestResumeIncompleteDeployIntegration(t *testing.T) {
 	assertContainerRunning(t, "app", true)
 
 	// A second resume with everything up to date must not redeploy.
-	engine.ResumeIncompleteDeploys(ctx, env.configWith, env.store, env.mirrorHead, nilFinder, env.deployHandler, slog.Default())
+	engine.ResumeIncompleteDeploys(ctx, env.configWith, env.store, func(_, _ string) (engine.MirrorRepo, string, bool) { return nil, env.sha, true }, env.deployHandler, slog.Default())
 	time.Sleep(300 * time.Millisecond)
 	after, err := env.store.GetLatestDeployment("app", "h1")
 	if err != nil {
