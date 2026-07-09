@@ -294,6 +294,42 @@ func TestHandleSHA_NewCommitNotInMirror_FetchesAndDiffs(t *testing.T) {
 	}
 }
 
+// Regression: the last deployed commit can be absent from the mirror (e.g. a
+// config-only push advanced state without a deploy). The poller must fetch the
+// base and diff rather than leaving ChangedFiles nil, which redeployed everything.
+func TestHandleSHA_BaseCommitNotInMirror_FetchesAndDiffs(t *testing.T) {
+	deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
+	store := makeStore(t)
+	oldSHA := "0000000000000000000000000000000000000001"
+	newSHA := "aabbccdd1122334455667788990011223344556677"
+	if err := store.SaveRepoState(&state.RepoState{
+		Repo: "myrepo", Branch: "main", LastDeployedSha: oldSHA,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, ch := newPoller(deployConfig, store)
+	// Mirror has neither commit yet; EnsureCommit must bring both in for the diff.
+	withFakeRepo(p, &fakeRepo{
+		objects: map[string]bool{},
+		diff:    []string{"apps/other/compose.yaml"},
+	})
+
+	p.HandleSHA(context.Background(), deployConfig.Repos[0], newSHA)
+
+	select {
+	case ev := <-ch:
+		if ev.ChangedFiles == nil {
+			t.Fatal("ChangedFiles is nil: base was not fetched, so every target would redeploy")
+		}
+		if len(ev.ChangedFiles) != 1 || ev.ChangedFiles[0] != "apps/other/compose.yaml" {
+			t.Errorf("ChangedFiles = %v, want [apps/other/compose.yaml]", ev.ChangedFiles)
+		}
+	default:
+		t.Fatal("no event dispatched")
+	}
+}
+
 func TestHandleSHA_EnsureCommitFails_DeploysUnconditionally(t *testing.T) {
 	deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
 	store := makeStore(t)

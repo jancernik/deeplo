@@ -147,14 +147,20 @@ func (poller *Poller) HandleSHA(ctx context.Context, repo config.RepoConfig, sha
 
 	var changedFiles []string
 	if localMirror, findErr := poller.findRepo(repo.URL); findErr == nil && localMirror != nil {
-		if repoState.LastDeployedSha != "" && localMirror.HasCommit(ctx, repoState.LastDeployedSha) {
+		if repoState.LastDeployedSha != "" {
+			if !localMirror.HasCommit(ctx, repoState.LastDeployedSha) {
+				if err := localMirror.EnsureCommit(ctx, repoState.LastDeployedSha); err != nil {
+					poller.logger.Warn("could not fetch last deployed commit for diff, deploying unconditionally",
+						"repo", repo.Name, "err", err)
+				}
+			}
 			if !localMirror.HasCommit(ctx, sha) {
 				if err := localMirror.EnsureCommit(ctx, sha); err != nil {
 					poller.logger.Warn("could not fetch new commit for diff, deploying unconditionally",
 						"repo", repo.Name, "err", err)
 				}
 			}
-			if localMirror.HasCommit(ctx, sha) {
+			if localMirror.HasCommit(ctx, repoState.LastDeployedSha) && localMirror.HasCommit(ctx, sha) {
 				if files, dErr := localMirror.DiffFiles(ctx, repoState.LastDeployedSha, sha); dErr == nil {
 					changedFiles = files
 				} else {
