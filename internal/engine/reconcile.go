@@ -258,6 +258,13 @@ func deployConfigChanged(oldProject, newProject config.Project) bool {
 		!slices.Equal(oldProject.PersistFiles, newProject.PersistFiles)
 }
 
+func hostConfigChanged(oldHost, newHost config.Host) bool {
+	return oldHost.Address != newHost.Address ||
+		oldHost.DeployDir != newHost.DeployDir ||
+		oldHost.User != newHost.User ||
+		oldHost.Port != newHost.Port
+}
+
 // Dispatches a redeploy for every existing project-host pair whose
 // deploy configuration changed between oldConfig and newConfig.
 func ReconcileProjectChanges(
@@ -272,6 +279,7 @@ func ReconcileProjectChanges(
 	}
 
 	oldProjects := oldConfig.ProjectIndex()
+	oldHosts := oldConfig.HostIndex()
 	repoByName := newConfig.RepoIndex()
 	hostByName := newConfig.HostIndex()
 
@@ -279,9 +287,10 @@ func ReconcileProjectChanges(
 
 	for _, newProject := range newConfig.Projects {
 		oldProject, existed := oldProjects[newProject.Name]
-		if !existed || !deployConfigChanged(oldProject, newProject) {
+		if !existed {
 			continue
 		}
+		projectChanged := deployConfigChanged(oldProject, newProject)
 
 		repo, ok := repoByName[newProject.Repo]
 		if !ok {
@@ -299,6 +308,10 @@ func ReconcileProjectChanges(
 			}
 			host, ok := hostByName[hostName]
 			if !ok {
+				continue
+			}
+			oldHost, hostExisted := oldHosts[hostName]
+			if !projectChanged && !(hostExisted && hostConfigChanged(oldHost, host)) {
 				continue
 			}
 			targetsByRepo[repo.Name] = append(targetsByRepo[repo.Name], planner.DeployTarget{

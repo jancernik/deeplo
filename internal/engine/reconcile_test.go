@@ -917,6 +917,87 @@ func TestReconcileProjectChanges_OnlyWatchPathsChanged_NoDeploy(t *testing.T) {
 	}
 }
 
+// Any deploy-affecting host field changing (where/how the deploy runs) redeploys
+// the projects on that host, even when the project config itself is untouched.
+func TestReconcileProjectChanges_HostFieldChanged_Redeploys(t *testing.T) {
+	newHosts := map[string]config.Host{
+		"address":    {Name: "h1", Address: "10.0.0.9", DeployDir: "/srv"},
+		"deploy_dir": {Name: "h1", Address: "10.0.0.1", DeployDir: "/opt/apps"},
+		"user":       {Name: "h1", Address: "10.0.0.1", DeployDir: "/srv", User: "root"},
+		"port":       {Name: "h1", Address: "10.0.0.1", DeployDir: "/srv", Port: 2222},
+	}
+	for name, newHost := range newHosts {
+		t.Run(name, func(t *testing.T) {
+			oldConfig := &config.Config{
+				Hosts:    []config.Host{{Name: "h1", Address: "10.0.0.1", DeployDir: "/srv"}},
+				Repos:    []config.RepoConfig{{Name: "myrepo", Branch: "main"}},
+				Projects: []config.Project{{Name: "app", Repo: "myrepo", Targets: []string{"h1"}}},
+			}
+			newConfig := &config.Config{
+				Hosts:    []config.Host{newHost},
+				Repos:    oldConfig.Repos,
+				Projects: oldConfig.Projects, // project itself unchanged
+			}
+			store := makeTestStore(t)
+			seedRepoState(t, store, "myrepo", "main", "abc123")
+
+			var events []planner.RepoEvent
+			engine.ReconcileProjectChanges(context.Background(), oldConfig, newConfig, store,
+				func(_ context.Context, ev planner.RepoEvent) { events = append(events, ev) },
+				slog.Default())
+
+			if len(events) != 1 {
+				t.Fatalf("expected 1 dispatch for %s change, got %d", name, len(events))
+			}
+			if !events[0].Redeploy {
+				t.Error("host-change redeploy must set Redeploy to bypass same-sha dedup")
+			}
+			if len(events[0].ForcedTargets) != 1 || events[0].ForcedTargets[0].Host != newHost {
+				t.Errorf("ForcedTargets should carry the new host, got %+v", events[0].ForcedTargets)
+			}
+		})
+	}
+}
+
+// Only projects on the host that changed are redeployed; projects on unchanged
+// hosts are left alone.
+func TestReconcileProjectChanges_OnlyChangedHostTargetsRedeploy(t *testing.T) {
+	oldConfig := &config.Config{
+		Hosts: []config.Host{
+			{Name: "h1", Address: "10.0.0.1", DeployDir: "/srv"},
+			{Name: "h2", Address: "10.0.0.2", DeployDir: "/srv"},
+		},
+		Repos: []config.RepoConfig{{Name: "myrepo", Branch: "main"}},
+		Projects: []config.Project{
+			{Name: "appA", Repo: "myrepo", Targets: []string{"h1"}},
+			{Name: "appB", Repo: "myrepo", Targets: []string{"h2"}},
+		},
+	}
+	newConfig := &config.Config{
+		Hosts: []config.Host{
+			{Name: "h1", Address: "10.0.0.1", DeployDir: "/srv"},      // unchanged
+			{Name: "h2", Address: "10.0.0.2", DeployDir: "/opt/apps"}, // deploy_dir changed
+		},
+		Repos:    oldConfig.Repos,
+		Projects: oldConfig.Projects,
+	}
+	store := makeTestStore(t)
+	seedRepoState(t, store, "myrepo", "main", "abc123")
+
+	var redeployed []string
+	engine.ReconcileProjectChanges(context.Background(), oldConfig, newConfig, store,
+		func(_ context.Context, ev planner.RepoEvent) {
+			for _, target := range ev.ForcedTargets {
+				redeployed = append(redeployed, target.Project.Name)
+			}
+		},
+		slog.Default())
+
+	if len(redeployed) != 1 || redeployed[0] != "appB" {
+		t.Errorf("only appB (on changed host h2) should redeploy, got %v", redeployed)
+	}
+}
+
 func TestReconcileProjectChanges_NewProjectNotInOld_NoDeploy(t *testing.T) {
 	// New projects (not in old config) are handled by ReconcileAdditions, not here.
 	hosts := reconcileTestHosts()
