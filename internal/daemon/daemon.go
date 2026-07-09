@@ -176,7 +176,7 @@ func (app *App) Run(ctx context.Context) error {
 	}
 
 	onConfigReload := func(_, newConfig *config.Config) {
-		app.watcher.restart(opsCtx, buildWatcher(newConfig, app.env, app.reloader, app.deployHandler, reloadConfigRepo, app.store, sshEnv, app.logger))
+		app.watcher.restart(opsCtx, buildWatcher(newConfig, getConfig, app.env, app.reloader, app.deployHandler, reloadConfigRepo, app.store, sshEnv, app.logger))
 		app.logger.Info("watcher restarted with reloaded config")
 		app.reconcileLoop.Trigger()
 	}
@@ -207,7 +207,7 @@ func (app *App) Run(ctx context.Context) error {
 	engine.ResumeIncompleteDeploys(opsCtx, configResult.Config, app.store, getMirrorHead, findMirror, app.deployHandler, app.logger)
 
 	app.watcher = &managedWatcher{}
-	app.watcher.start(buildWatcher(configResult.Config, app.env, app.reloader, app.deployHandler, reloadConfigRepo, app.store, sshEnv, app.logger), opsCtx)
+	app.watcher.start(buildWatcher(configResult.Config, getConfig, app.env, app.reloader, app.deployHandler, reloadConfigRepo, app.store, sshEnv, app.logger), opsCtx)
 
 	switch {
 	case app.env.Source == bootstrap.SourceGit:
@@ -391,6 +391,7 @@ func (app *App) shutdown(httpServer *http.Server) {
 
 func buildWatcher(
 	deployConfig *config.Config,
+	getConfig func() *config.Config,
 	env *bootstrap.Config,
 	reloader *configReloader,
 	deployHandler func(context.Context, planner.RepoEvent),
@@ -403,7 +404,7 @@ func buildWatcher(
 	if env.Source == bootstrap.SourceGit {
 		configMirrorPath = filepath.Join(env.DataPath, "config")
 	}
-	deployPoller := poller.New(deployConfig, env.DataPath, configMirrorPath, store, deployHandler, reloadConfigRepo, logger, sshEnv)
+	deployPoller := poller.New(deployConfig, getConfig, env.DataPath, configMirrorPath, store, deployHandler, reloadConfigRepo, logger, sshEnv)
 	subs := deployPoller.Subscriptions()
 
 	if env.Source == bootstrap.SourceGit && env.ConfigRepoMode != "webhook" {

@@ -58,6 +58,17 @@ func AllTargets(deployConfig *config.Config) []DeployTarget {
 	return targets
 }
 
+// TargetsForRepo returns every configured DeployTarget belonging to repoName.
+func TargetsForRepo(deployConfig *config.Config, repoName string) []DeployTarget {
+	var targets []DeployTarget
+	for _, target := range AllTargets(deployConfig) {
+		if target.Repo.Name == repoName {
+			targets = append(targets, target)
+		}
+	}
+	return targets
+}
+
 // Returns the DeployTargets that should be triggered for event.
 func Plan(deployConfig *config.Config, event RepoEvent) []DeployTarget {
 	if len(event.ForcedTargets) > 0 {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jancernik/deeplo/internal/config"
+	"github.com/jancernik/deeplo/internal/engine"
 	"github.com/jancernik/deeplo/internal/mirror"
 	"github.com/jancernik/deeplo/internal/planner"
 	"github.com/jancernik/deeplo/internal/repowatcher"
@@ -24,6 +25,7 @@ type repoOpener interface {
 
 type Poller struct {
 	deployConfig     *config.Config
+	getConfig        func() *config.Config
 	dataPath         string
 	store            *state.FileStore
 	onDeploy         func(context.Context, planner.RepoEvent)
@@ -36,6 +38,7 @@ type Poller struct {
 
 func New(
 	deployConfig *config.Config,
+	getConfig func() *config.Config,
 	dataPath string,
 	configMirrorDataPath string,
 	store *state.FileStore,
@@ -46,6 +49,7 @@ func New(
 ) *Poller {
 	poller := &Poller{
 		deployConfig:     deployConfig,
+		getConfig:        getConfig,
 		dataPath:         dataPath,
 		store:            store,
 		onDeploy:         onDeploy,
@@ -145,31 +149,6 @@ func (poller *Poller) HandleSHA(ctx context.Context, repo config.RepoConfig, sha
 		return
 	}
 
-	var changedFiles []string
-	if localMirror, findErr := poller.findRepo(repo.URL); findErr == nil && localMirror != nil {
-		if repoState.LastDeployedSha != "" {
-			if !localMirror.HasCommit(ctx, repoState.LastDeployedSha) {
-				if err := localMirror.EnsureCommit(ctx, repoState.LastDeployedSha); err != nil {
-					poller.logger.Warn("could not fetch last deployed commit for diff, deploying unconditionally",
-						"repo", repo.Name, "err", err)
-				}
-			}
-			if !localMirror.HasCommit(ctx, sha) {
-				if err := localMirror.EnsureCommit(ctx, sha); err != nil {
-					poller.logger.Warn("could not fetch new commit for diff, deploying unconditionally",
-						"repo", repo.Name, "err", err)
-				}
-			}
-			if localMirror.HasCommit(ctx, repoState.LastDeployedSha) && localMirror.HasCommit(ctx, sha) {
-				if files, dErr := localMirror.DiffFiles(ctx, repoState.LastDeployedSha, sha); dErr == nil {
-					changedFiles = files
-				} else {
-					poller.logger.Warn("diff failed, deploying unconditionally", "repo", repo.Name, "err", dErr)
-				}
-			}
-		}
-	}
-
 	if poller.reloadConfigRepo != nil {
 		if err := poller.reloadConfigRepo(ctx, repo.Name); err != nil {
 			poller.logger.Warn("config repo reload failed, deferring deploy until config is valid",
@@ -181,18 +160,37 @@ func (poller *Poller) HandleSHA(ctx context.Context, repo config.RepoConfig, sha
 		}
 	}
 
+	// Reconcile each target against its own last successful deploy.
+	var repoMirror engine.MirrorDiffer
+	if localMirror, findErr := poller.findRepo(repo.URL); findErr == nil && localMirror != nil {
+		if !localMirror.HasCommit(ctx, sha) {
+			if err := localMirror.EnsureCommit(ctx, sha); err != nil {
+				poller.logger.Warn("could not fetch new commit, reconciling without a diff",
+					"repo", repo.Name, "err", err)
+			}
+		}
+		repoMirror = localMirror
+	}
+	targets := planner.TargetsForRepo(poller.getConfig(), repo.Name)
+	pending := engine.PendingTargetsForHead(ctx, poller.store, targets, sha, repoMirror, poller.logger)
+
 	repoState.LastDeployedSha = sha
 	repoState.TriggerSource = string(planner.TriggerPoll)
 	if err := poller.store.SaveRepoState(repoState); err != nil {
 		poller.logger.Warn("failed to save repo state before dispatch", "repo", repo.Name, "err", err)
 	}
 
+	if len(pending) == 0 {
+		poller.logger.Debug("new commit touched no targets", "repo", repo.Name, "sha", utils.ShortSha(sha))
+		return
+	}
+
 	poller.onDeploy(ctx, planner.RepoEvent{
-		Source:       planner.TriggerPoll,
-		RepoName:     repo.Name,
-		Branch:       repo.Branch,
-		CommitSha:    sha,
-		ChangedFiles: changedFiles,
+		Source:        planner.TriggerPoll,
+		RepoName:      repo.Name,
+		Branch:        repo.Branch,
+		CommitSha:     sha,
+		ForcedTargets: pending,
 	})
 }
 

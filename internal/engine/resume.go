@@ -57,18 +57,7 @@ func ResumeIncompleteDeploys(
 			repoMirror = findMirror(repoConfig.URL)
 		}
 
-		var pending []planner.DeployTarget
-		for _, target := range repoTargets {
-			if ShouldSkipDeploy(store, target.Project.Name, target.Host.Name, sha) {
-				continue
-			}
-			if targetUntouchedSinceLastDeploy(ctx, store, repoMirror, target, sha) {
-				logger.Debug("commits since last deploy did not touch target, skipping resume",
-					"repo", repoName, "project", target.Project.Name, "host", target.Host.Name)
-				continue
-			}
-			pending = append(pending, target)
-		}
+		pending := PendingTargetsForHead(ctx, store, repoTargets, sha, repoMirror, logger)
 		if len(pending) == 0 {
 			continue
 		}
@@ -84,6 +73,30 @@ func ResumeIncompleteDeploys(
 			ForcedTargets: pending,
 		})
 	}
+}
+
+// Returns the subset of targets that must be redeployed to reach headSha.
+func PendingTargetsForHead(
+	ctx context.Context,
+	store *state.FileStore,
+	targets []planner.DeployTarget,
+	headSha string,
+	repoMirror MirrorDiffer,
+	logger *slog.Logger,
+) []planner.DeployTarget {
+	var pending []planner.DeployTarget
+	for _, target := range targets {
+		if ShouldSkipDeploy(store, target.Project.Name, target.Host.Name, headSha) {
+			continue
+		}
+		if targetUntouchedSinceLastDeploy(ctx, store, repoMirror, target, headSha) {
+			logger.Debug("commits since last deploy did not touch target, skipping",
+				"repo", target.Repo.Name, "project", target.Project.Name, "host", target.Host.Name)
+			continue
+		}
+		pending = append(pending, target)
+	}
+	return pending
 }
 
 // Reports whether the range from the target's last successful deploy to headSha
