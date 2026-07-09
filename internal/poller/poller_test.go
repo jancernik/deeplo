@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jancernik/deeplo/internal/config"
+	"github.com/jancernik/deeplo/internal/engine"
 	"github.com/jancernik/deeplo/internal/planner"
 	"github.com/jancernik/deeplo/internal/state"
 )
@@ -80,12 +81,12 @@ func newPoller(deployConfig *config.Config, store *state.FileStore) (*Poller, <-
 	return p, ch
 }
 
-func withFakeRepo(p *Poller, repo repoOpener) {
-	p.findRepo = func(_ string) (repoOpener, error) { return repo, nil }
+func withFakeRepo(p *Poller, repo engine.MirrorRepo) {
+	p.findRepo = func(_ string) (engine.MirrorRepo, error) { return repo, nil }
 }
 
 func withNoMirror(p *Poller) {
-	p.findRepo = func(_ string) (repoOpener, error) { return nil, nil }
+	p.findRepo = func(_ string) (engine.MirrorRepo, error) { return nil, nil }
 }
 
 func seedSuccess(t *testing.T, store *state.FileStore, project, host, sha string) {
@@ -479,7 +480,7 @@ func TestHandleSHA_StalePoll_SkippedViaConfigMirror(t *testing.T) {
 		objects:    map[string]bool{olderSHA: true, newerSHA: true},
 		ancestorOf: map[string]bool{olderSHA: true},
 	}
-	p.findConfigMirror = func(_ string) (repoOpener, error) { return configMirror, nil }
+	p.findConfigMirror = func(_ string) (engine.MirrorRepo, error) { return configMirror, nil }
 
 	p.HandleSHA(context.Background(), deployConfig.Repos[0], olderSHA)
 

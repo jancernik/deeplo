@@ -16,13 +16,6 @@ import (
 	"github.com/jancernik/deeplo/internal/utils"
 )
 
-type repoOpener interface {
-	HasCommit(ctx context.Context, sha string) bool
-	EnsureCommit(ctx context.Context, sha string) error
-	DiffFiles(ctx context.Context, oldSha, newSha string) ([]string, error)
-	IsAncestor(ctx context.Context, ancestor, descendant string) bool
-}
-
 type Poller struct {
 	deployConfig     *config.Config
 	getConfig        func() *config.Config
@@ -31,8 +24,8 @@ type Poller struct {
 	onDeploy         func(context.Context, planner.RepoEvent)
 	reloadConfigRepo func(ctx context.Context, repoName string) error
 	logger           *slog.Logger
-	findRepo         func(url string) (repoOpener, error)
-	findConfigMirror func(url string) (repoOpener, error) // nil when no config mirror exists
+	findRepo         func(url string) (engine.MirrorRepo, error)
+	findConfigMirror func(url string) (engine.MirrorRepo, error) // nil when no config mirror exists
 	sshEnv           []string
 }
 
@@ -57,7 +50,7 @@ func New(
 		logger:           logger.With("component", "poller"),
 		sshEnv:           sshEnv,
 	}
-	poller.findRepo = func(url string) (repoOpener, error) {
+	poller.findRepo = func(url string) (engine.MirrorRepo, error) {
 		repo, err := mirror.Find(url, poller.dataPath, poller.sshEnv, poller.logger)
 		if err != nil || repo == nil {
 			return nil, err
@@ -65,7 +58,7 @@ func New(
 		return repo, nil
 	}
 	if configMirrorDataPath != "" {
-		poller.findConfigMirror = func(url string) (repoOpener, error) {
+		poller.findConfigMirror = func(url string) (engine.MirrorRepo, error) {
 			repo, err := mirror.Find(url, configMirrorDataPath, poller.sshEnv, poller.logger)
 			if err != nil || repo == nil {
 				return nil, err
@@ -105,8 +98,9 @@ func (poller *Poller) makeHandler(repo config.RepoConfig) func(context.Context, 
 	}
 }
 
-// Compares against stored state, computes a file diff when a local mirror is available,
-// and dispatches a deploy event when a new commit is detected.
+// Detects a new commit for repo and reconciles each of its targets to it,
+// dispatching a deploy for the targets whose watched paths changed since their own
+// last successful deploy.
 func (poller *Poller) HandleSHA(ctx context.Context, repo config.RepoConfig, sha string) {
 	now := time.Now().UTC()
 
@@ -198,7 +192,7 @@ func (poller *Poller) HandleSHA(ctx context.Context, repo config.RepoConfig, sha
 // to determine if sha is an ancestor of deployedSha, meaning the remote
 // returned an older commit than what was already deployed.
 func (poller *Poller) isStalePoll(ctx context.Context, repoURL, sha, deployedSha string) bool {
-	finders := []func(string) (repoOpener, error){poller.findRepo}
+	finders := []func(string) (engine.MirrorRepo, error){poller.findRepo}
 	if poller.findConfigMirror != nil {
 		finders = append(finders, poller.findConfigMirror)
 	}
