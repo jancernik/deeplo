@@ -315,7 +315,8 @@ func ReconcileProjectChanges(
 				continue
 			}
 			oldHost, hostExisted := oldHosts[hostName]
-			if !projectChanged && !(hostExisted && hostConfigChanged(oldHost, host)) {
+			hostChanged := hostExisted && hostConfigChanged(oldHost, host)
+			if !projectChanged && !hostChanged {
 				continue
 			}
 			targetsByRepo[repo.Name] = append(targetsByRepo[repo.Name], planner.DeployTarget{
