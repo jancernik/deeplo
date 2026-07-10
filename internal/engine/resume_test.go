@@ -223,12 +223,34 @@ func TestResume_RetriesFailedTargetEvenWhenUntouched(t *testing.T) {
 	}
 }
 
+// Regression: after a rebase or force-push, a target's last-deployed commit is no
+// longer an ancestor of head. Resume must still diff the two trees (git diff needs
+// no ancestry) and skip a target whose files are unchanged, rather than treating
+// divergence as "redeploy everything".
+func TestResume_DivergedHistory_SkipsUntouchedTarget(t *testing.T) {
+	deployConfig := resumeTestConfig()
+	store := makeTestStore(t)
+	seedSuccess(t, store, "app", "h1", "orphansha") // deployed on a now-rewritten commit
+	seedSuccess(t, store, "app", "h2", "orphansha")
+
+	// orphansha is not an ancestor of newsha, but the tree diff touches only files
+	// outside the project's watched paths.
+	differ := &stubDiffer{notAncestor: true, files: []string{"config.yml"}}
+
+	dispatched := 0
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("newsha", differ),
+		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
+
+	if dispatched != 0 {
+		t.Errorf("diverged history with an untouched tree must not redeploy; got %d", dispatched)
+	}
+}
+
 // When the mirror can't answer, resume falls back to deploying rather than dropping the target.
 func TestResume_FallsBackToUnconditionalWhenMirrorUnavailable(t *testing.T) {
 	cases := map[string]func(string, string) (engine.MirrorRepo, string, bool){
-		"nil mirror":   resolver("newsha", nil),
-		"diff error":   resolver("newsha", &stubDiffer{diffErr: errStub, files: []string{"other/x"}}),
-		"not ancestor": resolver("newsha", &stubDiffer{notAncestor: true, files: []string{"other/x"}}),
+		"nil mirror": resolver("newsha", nil),
+		"diff error": resolver("newsha", &stubDiffer{diffErr: errStub, files: []string{"other/x"}}),
 	}
 	for name, resolve := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -105,10 +105,10 @@ func PendingTargetsForHead(
 	return pending
 }
 
-// Reports whether the range from the target's last successful deploy to headSha
-// provably did not touch its watched paths. Cases it can't prove (no success
-// baseline, missing or diverged commits, diff errors) return false to keep the
-// target, so a resume never silently drops work.
+// Reports whether the files differing between the target's last successful deploy
+// and headSha provably don't touch its watched paths. Cases it can't prove (no
+// success baseline, a missing commit, a diff error) return false to keep the target,
+// so a resume never silently drops work.
 func targetUntouchedSinceLastDeploy(
 	ctx context.Context,
 	store *state.FileStore,
@@ -128,9 +128,6 @@ func targetUntouchedSinceLastDeploy(
 		return false
 	}
 	if !repoMirror.HasCommit(ctx, deployedSha) || !repoMirror.HasCommit(ctx, headSha) {
-		return false
-	}
-	if !repoMirror.IsAncestor(ctx, deployedSha, headSha) {
 		return false
 	}
 	files, err := repoMirror.DiffFiles(ctx, deployedSha, headSha)
