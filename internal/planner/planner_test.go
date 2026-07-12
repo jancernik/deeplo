@@ -136,6 +136,23 @@ func TestPlan_RepoSubdirDefaultsWatchPath_NilChangedFiles(t *testing.T) {
 	}
 }
 
+// Regression (mass-redeploy incident): empty is not nil. An empty non-nil
+// ChangedFiles means "provably nothing changed" and must match no watched
+// project, while nil means "unknown diff" and deploys unconditionally. Sources
+// of changed files (git diffs, webhook payloads) must return empty non-nil
+// slices so an empty diff is never mistaken for an unknown one.
+func TestPlan_EmptyChangedFiles_NoTargets(t *testing.T) {
+	deployConfig := makeConfig(
+		[]config.Host{host("prod", "10.0.0.1")},
+		[]config.RepoConfig{repo("myrepo", "main")},
+		[]config.Project{projectWithSubdir("app", "myrepo", "services/web", nil, []string{"prod"})},
+	)
+	targets := planner.Plan(deployConfig, planner.RepoEvent{RepoName: "myrepo", Branch: "main", CommitSha: "abc", ChangedFiles: []string{}})
+	if len(targets) != 0 {
+		t.Fatalf("got %d targets, want 0 (empty diff = nothing changed)", len(targets))
+	}
+}
+
 func TestPlan_ExplicitWatchPathsOverrideSubdir(t *testing.T) {
 	deployConfig := makeConfig(
 		[]config.Host{host("prod", "10.0.0.1")},

@@ -37,7 +37,7 @@ func (payload *PushPayload) Branch() string {
 
 func (payload *PushPayload) ChangedFiles() []string {
 	seen := make(map[string]struct{})
-	var files []string
+	files := []string{}
 	add := func(paths []string) {
 		for _, path := range paths {
 			if _, ok := seen[path]; !ok {

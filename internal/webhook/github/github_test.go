@@ -341,6 +341,34 @@ func TestParsePushPayload(t *testing.T) {
 	}
 }
 
+// Regression: a push with no file changes (empty commit, bare branch push) must
+// yield an empty non-nil slice. A nil slice reads as "unknown diff" to the planner,
+// which deploys every target.
+func TestChangedFiles_EmptyPush_NotNil(t *testing.T) {
+	cases := []struct {
+		name string
+		json string
+	}{
+		{"no commits", `{"ref": "refs/heads/main", "after": "abc", "repository": {"full_name": "x/y"}, "commits": []}`},
+		{"commit with no files", `{"ref": "refs/heads/main", "after": "abc", "repository": {"full_name": "x/y"}, "commits": [{"added": [], "modified": [], "removed": []}]}`},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			p, err := githubwebhook.ParsePushPayload([]byte(testCase.json))
+			if err != nil {
+				t.Fatalf("ParsePushPayload: %v", err)
+			}
+			files := p.ChangedFiles()
+			if files == nil {
+				t.Error("ChangedFiles: got nil, want empty non-nil slice")
+			}
+			if len(files) != 0 {
+				t.Errorf("ChangedFiles: got %v, want empty", files)
+			}
+		})
+	}
+}
+
 func TestParsePushPayload_InvalidJSON(t *testing.T) {
 	_, err := githubwebhook.ParsePushPayload([]byte(`not json`))
 	if err == nil {

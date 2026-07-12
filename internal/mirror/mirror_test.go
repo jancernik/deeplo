@@ -417,6 +417,35 @@ func TestDiffFiles(t *testing.T) {
 	}
 }
 
+// Regression (mass-redeploy incident): a commit that exactly reverts the previous
+// one leaves the two trees identical, so the diff has no files. The result must be
+// an empty non-nil slice — a nil slice reads as "unknown diff" to the planner,
+// which deploys every target.
+func TestDiffFiles_IdenticalTrees_EmptyNonNil(t *testing.T) {
+	requireGit(t)
+	bare, work, baseSha := setupRepo(t)
+	dataPath := t.TempDir()
+
+	addCommit(t, work, "apps/myapp/.env", "FOO=broken\n")           // bad commit
+	revertSha := addCommit(t, work, "apps/myapp/.env", "FOO=bar\n") // exact revert of it
+
+	repo, err := mirror.Open(context.Background(), bare, dataPath, nil, slog.Default())
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	files, err := repo.DiffFiles(context.Background(), baseSha, revertSha)
+	if err != nil {
+		t.Fatalf("DiffFiles: %v", err)
+	}
+	if files == nil {
+		t.Fatal("DiffFiles returned nil for an empty diff, want empty non-nil slice")
+	}
+	if len(files) != 0 {
+		t.Errorf("DiffFiles = %v, want empty (trees are identical)", files)
+	}
+}
+
 // EnsureCommit fetch path
 
 func TestEnsureCommit_FetchesWhenMissing(t *testing.T) {

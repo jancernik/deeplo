@@ -95,7 +95,7 @@ func PendingTargetsForHead(
 		if ShouldSkipDeploy(store, target.Project.Name, target.Host.Name, headSha) {
 			continue
 		}
-		if targetUntouchedSinceLastDeploy(ctx, store, repoMirror, target, headSha) {
+		if targetUntouchedSinceLastDeploy(ctx, store, repoMirror, target, headSha, logger) {
 			logger.Debug("commits since last deploy did not touch target, skipping",
 				"repo", target.Repo.Name, "project", target.Project.Name, "host", target.Host.Name)
 			continue
@@ -115,24 +115,39 @@ func targetUntouchedSinceLastDeploy(
 	repoMirror MirrorDiffer,
 	target planner.DeployTarget,
 	headSha string,
+	logger *slog.Logger,
 ) bool {
-	if repoMirror == nil {
+	keep := func(reason string, args ...any) bool {
+		args = append([]any{
+			"repo", target.Repo.Name, "project", target.Project.Name, "host", target.Host.Name,
+			"reason", reason,
+		}, args...)
+		logger.Debug("target kept for redeploy", args...)
 		return false
+	}
+	if repoMirror == nil {
+		return keep("no local mirror to diff against")
 	}
 	latest, err := store.GetLatestDeployment(target.Project.Name, target.Host.Name)
 	if err != nil || latest == nil || latest.Status != state.StatusSuccess {
-		return false
+		return keep("no successful deploy baseline")
 	}
 	deployedSha := latest.CommitSha
 	if deployedSha == "" || deployedSha == headSha {
-		return false
+		return keep("baseline sha empty or equal to head")
 	}
 	if !repoMirror.HasCommit(ctx, deployedSha) || !repoMirror.HasCommit(ctx, headSha) {
-		return false
+		return keep("baseline or head commit missing from mirror")
 	}
 	files, err := repoMirror.DiffFiles(ctx, deployedSha, headSha)
 	if err != nil {
-		return false
+		return keep("diff failed", "err", err)
 	}
-	return !planner.ProjectMatchesChangedFiles(target.Project, files)
+	if len(files) == 0 {
+		return true
+	}
+	if planner.ProjectMatchesChangedFiles(target.Project, files) {
+		return keep("commits since last deploy touched watched paths")
+	}
+	return true
 }

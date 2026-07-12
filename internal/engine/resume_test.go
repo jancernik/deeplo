@@ -4,11 +4,16 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jancernik/deeplo/internal/config"
 	"github.com/jancernik/deeplo/internal/engine"
+	"github.com/jancernik/deeplo/internal/mirror"
 	"github.com/jancernik/deeplo/internal/planner"
 	"github.com/jancernik/deeplo/internal/state"
 )
@@ -164,6 +169,27 @@ func TestResume_SkipsTargetBehindHead_WhenUntouched(t *testing.T) {
 
 	if dispatched != 0 {
 		t.Errorf("no target was touched between oldsha..newsha; expected no dispatch, got %d", dispatched)
+	}
+}
+
+// Regression: a commit that exactly reverts the one before it leaves the baseline
+// and head trees identical, so the diff is empty. An empty diff proves the target
+// is untouched; it must not be confused with an unknown diff, which redeploys
+// everything.
+func TestResume_SkipsTarget_WhenDiffIsEmpty(t *testing.T) {
+	deployConfig := resumeTestConfig()
+	store := makeTestStore(t)
+	seedSuccess(t, store, "app", "h1", "oldsha")
+	seedSuccess(t, store, "app", "h2", "oldsha")
+
+	differ := &stubDiffer{files: nil} // identical trees: git diff reports no files
+
+	dispatched := 0
+	engine.ResumeIncompleteDeploys(context.Background(), deployConfig, store, resolver("newsha", differ),
+		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
+
+	if dispatched != 0 {
+		t.Errorf("baseline and head trees are identical; expected no dispatch, got %d", dispatched)
 	}
 }
 
@@ -359,5 +385,94 @@ func TestResume_NilStore_Noop(t *testing.T) {
 		func(_ context.Context, _ planner.RepoEvent) { dispatched++ }, slog.Default())
 	if dispatched != 0 {
 		t.Errorf("nil store should be a no-op, got %d dispatches", dispatched)
+	}
+}
+
+// End-to-end reproduction of the mass-redeploy incident through a real git
+// mirror. Baseline deploy at commit A; commit B breaks a root config file the
+// project does not watch; commit C reverts B exactly, so tree(A) == tree(C) and
+// the per-target diff is empty. Neither head may produce a pending target — an
+// empty diff must never read as "unknown, deploy everything". A commit that does
+// touch the project must still deploy it.
+func TestPendingTargetsForHead_RealGit_CommitRevertPair(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not found on PATH")
+	}
+	ctx := context.Background()
+	base := t.TempDir()
+	bare := filepath.Join(base, "remote.git")
+	work := filepath.Join(base, "work")
+
+	mustGit := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	pushFile := func(name, content, message string) string {
+		t.Helper()
+		path := filepath.Join(work, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+		mustGit(work, "add", ".")
+		mustGit(work, "commit", "-m", message)
+		mustGit(work, "push", "origin", "main")
+		out, err := exec.Command("git", "-C", work, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatalf("rev-parse: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	mustGit("", "init", "--bare", "--initial-branch=main", bare)
+	mustGit("", "init", "--initial-branch=main", work)
+	mustGit(work, "config", "user.email", "test@example.com")
+	mustGit(work, "config", "user.name", "Test")
+	if err := os.MkdirAll(filepath.Join(work, "apps", "myapp"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(work, "apps", "myapp", "compose.yaml"), []byte("services: {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mustGit(work, "remote", "add", "origin", bare)
+
+	baseSha := pushFile("config.yml", "jenkins: http://jenkins:8080\n", "baseline")
+	badSha := pushFile("config.yml", "jenkins: ${A_JENKINS_ADDRESS}\n", "break config")
+	fixSha := pushFile("config.yml", "jenkins: http://jenkins:8080\n", "fix config")
+
+	deployConfig := &config.Config{
+		Hosts:    []config.Host{{Name: "h1", Address: "10.0.0.1", DeployDir: "/srv"}},
+		Repos:    []config.RepoConfig{{Name: "myrepo", Branch: "main", URL: bare}},
+		Projects: []config.Project{{Name: "app", Repo: "myrepo", Targets: []string{"h1"}, RepoSubdir: "apps/myapp", DeploySubdir: "app"}},
+	}
+	targets := planner.AllTargets(deployConfig)
+	store := makeTestStore(t)
+	seedSuccess(t, store, "app", "h1", baseSha)
+
+	repoMirror, err := mirror.Open(ctx, bare, t.TempDir(), nil, slog.Default())
+	if err != nil {
+		t.Fatalf("Open mirror: %v", err)
+	}
+
+	if pending := engine.PendingTargetsForHead(ctx, store, targets, fixSha, repoMirror, slog.Default()); len(pending) != 0 {
+		t.Errorf("head=fix (tree identical to baseline): got %d pending targets, want 0", len(pending))
+	}
+	if pending := engine.PendingTargetsForHead(ctx, store, targets, badSha, repoMirror, slog.Default()); len(pending) != 0 {
+		t.Errorf("head=bad (touched only unwatched config.yml): got %d pending targets, want 0", len(pending))
+	}
+
+	touchSha := pushFile("apps/myapp/compose.yaml", "services: {web: {}}\n", "change project")
+	if err := repoMirror.EnsureCommit(ctx, touchSha); err != nil {
+		t.Fatalf("EnsureCommit: %v", err)
+	}
+	pending := engine.PendingTargetsForHead(ctx, store, targets, touchSha, repoMirror, slog.Default())
+	if len(pending) != 1 || pending[0].Project.Name != "app" {
+		t.Errorf("head touching the project: got %v, want [app]", pending)
 	}
 }

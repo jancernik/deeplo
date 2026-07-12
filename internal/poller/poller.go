@@ -159,8 +159,12 @@ func (poller *Poller) HandleSHA(ctx context.Context, repo config.RepoConfig, sha
 	if localMirror, findErr := poller.findRepo(repo.URL); findErr == nil && localMirror != nil {
 		if !localMirror.HasCommit(ctx, sha) {
 			if err := localMirror.EnsureCommit(ctx, sha); err != nil {
-				poller.logger.Warn("could not fetch new commit, reconciling without a diff",
-					"repo", repo.Name, "err", err)
+				poller.logger.Warn("could not fetch new commit, deferring deploy until fetch succeeds",
+					"repo", repo.Name, "sha", utils.ShortSha(sha), "err", err)
+				if err := poller.store.SaveRepoState(repoState); err != nil {
+					poller.logger.Warn("failed to save repo state", "repo", repo.Name, "err", err)
+				}
+				return
 			}
 		}
 		repoMirror = localMirror

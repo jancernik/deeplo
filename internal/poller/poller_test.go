@@ -361,41 +361,132 @@ func TestHandleSHA_StrandedTargetHealsOnNextCommit(t *testing.T) {
 	}
 }
 
+// Regression (mass-redeploy incident): a commit that exactly reverts the previous
+// one makes every target's baseline tree identical to head, so the per-target diff
+// is empty. Empty must mean "provably untouched", not "unknown, deploy everything".
+// The repo cursor must still advance so the pair is not re-examined forever.
+func TestHandleSHA_CommitRevertPair_NoDispatch(t *testing.T) {
+	deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
+	store := makeStore(t)
+	baseSHA := "0000000000000000000000000000000000000001"
+	revertSHA := "aabbccdd1122334455667788990011223344556677" // reverts the commit after baseSHA
+	seedSuccess(t, store, "myapp", "h1", baseSHA)
+	if err := store.SaveRepoState(&state.RepoState{
+		Repo: "myrepo", Branch: "main", LastDeployedSha: baseSHA,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, ch := newPoller(deployConfig, store)
+	withFakeRepo(p, &fakeRepo{
+		objects:    map[string]bool{baseSHA: true, revertSHA: true},
+		ancestorOf: map[string]bool{baseSHA: true},
+		diff:       nil, // identical trees: git reports no changed files
+	})
+
+	p.HandleSHA(context.Background(), deployConfig.Repos[0], revertSHA)
+
+	select {
+	case ev := <-ch:
+		t.Errorf("identical trees must not deploy anything, got %v", forcedProjects(ev))
+	default:
+	}
+	repoState, err := store.GetRepoState("myrepo", "main")
+	if err != nil || repoState == nil {
+		t.Fatalf("repo state: %v", err)
+	}
+	if repoState.LastDeployedSha != revertSHA {
+		t.Errorf("LastDeployedSha = %s, want %s (cursor must advance past the revert)", repoState.LastDeployedSha, revertSHA)
+	}
+}
+
+// When the new head cannot be fetched, no diff can prove any target untouched and
+// the deploys themselves could not fetch the commit either. The poller must defer
+// (cursor unchanged) and succeed normally once the fetch recovers, rather than
+// force-deploying every target.
+func TestHandleSHA_HeadFetchFails_DefersThenRecovers(t *testing.T) {
+	deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
+	store := makeStore(t)
+	oldSHA := "0000000000000000000000000000000000000001"
+	newSHA := "aabbccdd1122334455667788990011223344556677"
+	seedSuccess(t, store, "myapp", "h1", oldSHA)
+	if err := store.SaveRepoState(&state.RepoState{
+		Repo: "myrepo", Branch: "main", LastDeployedSha: oldSHA,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	p, ch := newPoller(deployConfig, store)
+	fake := &fakeRepo{
+		objects:    map[string]bool{oldSHA: true},
+		ancestorOf: map[string]bool{oldSHA: true},
+		ensureErr:  errors.New("fetch failed"),
+		diff:       []string{"apps/myapp/compose.yaml"},
+	}
+	withFakeRepo(p, fake)
+
+	p.HandleSHA(context.Background(), deployConfig.Repos[0], newSHA)
+
+	select {
+	case ev := <-ch:
+		t.Errorf("unfetchable head must defer, not deploy, got %v", forcedProjects(ev))
+	default:
+	}
+	repoState, err := store.GetRepoState("myrepo", "main")
+	if err != nil || repoState == nil {
+		t.Fatalf("repo state: %v", err)
+	}
+	if repoState.LastDeployedSha != oldSHA {
+		t.Errorf("LastDeployedSha = %s, want %s (deferral must not advance the cursor)", repoState.LastDeployedSha, oldSHA)
+	}
+
+	// Fetch recovers on the next poll: only the touched target deploys.
+	fake.ensureErr = nil
+	p.HandleSHA(context.Background(), deployConfig.Repos[0], newSHA)
+
+	select {
+	case ev := <-ch:
+		if got := forcedProjects(ev); len(got) != 1 || got[0] != "myapp" {
+			t.Errorf("ForcedTargets = %v, want [myapp]", got)
+		}
+	default:
+		t.Fatal("no event dispatched after fetch recovered")
+	}
+}
+
 // When the diff can't be computed, a behind target is deployed conservatively
-// rather than skipped: fetch failure, diff error, and no mirror all fall back to
-// deploying it. (A never-deployed target would deploy anyway, so seed a prior
-// success to isolate the "can't diff" fallback.)
+// rather than skipped: a diff error and no mirror both fall back to deploying it.
+// (A never-deployed target would deploy anyway, so seed a prior success to
+// isolate the "can't diff" fallback.)
 func TestHandleSHA_DiffUnavailable_DeploysTarget(t *testing.T) {
 	oldSHA := "0000000000000000000000000000000000000001"
 	newSHA := "aabbccdd1122334455667788990011223344556677"
 
-	cases := map[string]*fakeRepo{
-		"fetch fails": {objects: map[string]bool{oldSHA: true}, ensureErr: errors.New("fetch failed")},
-		"diff error":  {objects: map[string]bool{oldSHA: true, newSHA: true}, ancestorOf: map[string]bool{oldSHA: true}, diffErr: errors.New("diff failed")},
-	}
-	for name, fake := range cases {
-		t.Run(name, func(t *testing.T) {
-			deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
-			store := makeStore(t)
-			seedSuccess(t, store, "myapp", "h1", oldSHA)
-			if err := store.SaveRepoState(&state.RepoState{Repo: "myrepo", Branch: "main", LastDeployedSha: oldSHA}); err != nil {
-				t.Fatal(err)
-			}
-			p, ch := newPoller(deployConfig, store)
-			withFakeRepo(p, fake)
-
-			p.HandleSHA(context.Background(), deployConfig.Repos[0], newSHA)
-
-			select {
-			case ev := <-ch:
-				if got := forcedProjects(ev); len(got) != 1 || got[0] != "myapp" {
-					t.Errorf("ForcedTargets = %v, want [myapp]", got)
-				}
-			default:
-				t.Fatal("no event dispatched")
-			}
+	t.Run("diff error", func(t *testing.T) {
+		deployConfig := makeConfig(config.TriggerModePoll, time.Minute)
+		store := makeStore(t)
+		seedSuccess(t, store, "myapp", "h1", oldSHA)
+		if err := store.SaveRepoState(&state.RepoState{Repo: "myrepo", Branch: "main", LastDeployedSha: oldSHA}); err != nil {
+			t.Fatal(err)
+		}
+		p, ch := newPoller(deployConfig, store)
+		withFakeRepo(p, &fakeRepo{
+			objects:    map[string]bool{oldSHA: true, newSHA: true},
+			ancestorOf: map[string]bool{oldSHA: true},
+			diffErr:    errors.New("diff failed"),
 		})
-	}
+
+		p.HandleSHA(context.Background(), deployConfig.Repos[0], newSHA)
+
+		select {
+		case ev := <-ch:
+			if got := forcedProjects(ev); len(got) != 1 || got[0] != "myapp" {
+				t.Errorf("ForcedTargets = %v, want [myapp]", got)
+			}
+		default:
+			t.Fatal("no event dispatched")
+		}
+	})
 
 	t.Run("no mirror", func(t *testing.T) {
 		deployConfig := makeConfig(config.TriggerModePoll, time.Minute)

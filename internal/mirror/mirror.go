@@ -233,7 +233,7 @@ func (repo *Repo) DiffFiles(ctx context.Context, oldSha, newSha string) ([]strin
 		return nil, fmt.Errorf("git diff --name-only %s %s: %w\n%s",
 			oldSha[:min(8, len(oldSha))], newSha[:min(8, len(newSha))], err, stderr.String())
 	}
-	var files []string
+	files := []string{}
 	for _, line := range strings.Split(strings.TrimSpace(stdout.String()), "\n") {
 		if line != "" {
 			files = append(files, line)
